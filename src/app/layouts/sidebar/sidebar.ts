@@ -58,7 +58,8 @@ export class Sidebar {
     }
   }
 
-  protected onSessionClick(): void {
+  protected onSessionClick(sessionId: string): void {
+    void this.session.openSession(sessionId);
     this.layout.closeSidebarOnMobileNav();
   }
 

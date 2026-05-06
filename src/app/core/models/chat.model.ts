@@ -86,6 +86,7 @@ export interface SubmitTurnRequest {
     maxOutputTokens?: number;
     includeDiagnostics?: boolean;
     thinking?: boolean;
+    forceThinking?: boolean;
   };
 }
 

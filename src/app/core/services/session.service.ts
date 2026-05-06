@@ -192,7 +192,7 @@ export class SessionService {
    * stop generation early — the orchestrator's `AbortController` then
    * tears the upstream Model Host stream down.
    */
-  sendStream(text: string): void {
+  sendStream(text: string, options: { forceThinking?: boolean } = {}): void {
     const sessionId = this._activeId();
     if (!sessionId) {
       this._error.set('No active session. Start a new chat first.');
@@ -235,7 +235,7 @@ export class SessionService {
     this.currentStream = this.stream.openTurn({
       sessionId,
       text,
-      thinking: true,
+      forceThinking: options.forceThinking === true,
       includeDiagnostics: true,
       onEvent: (evt) => {
         switch (evt.type) {
@@ -307,6 +307,14 @@ export class SessionService {
   cancelStream(): void {
     this.currentStream?.cancel();
     this.currentStream = null;
+  }
+
+  clearActiveView(): void {
+    if (this._activeId() === null && this._messages().length === 0) return;
+    this.cancelStream();
+    this._activeId.set(null);
+    this._messages.set([]);
+    this.persistActiveId();
   }
 
   /** Forget local cache. Server keeps its own copy. */

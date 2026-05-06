@@ -6,12 +6,13 @@ import {
   effect,
   inject,
   input,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { SessionService } from '../../core/services/session.service';
 import { PersonaService } from '../../core/services/persona.service';
-import { Composer } from './components/composer/composer';
+import { Composer, type ComposerSendEvent } from './components/composer/composer';
 import { MessageBubble } from './components/message-bubble/message-bubble';
 
 @Component({
@@ -45,8 +46,10 @@ export class ChatPage {
     // active session display.
     effect(() => {
       const id = this.sessionId();
-      if (id && id !== this.session.activeId()) {
-        void this.session.openSession(id);
+      if (id) {
+        untracked(() => void this.session.openSession(id));
+      } else {
+        untracked(() => this.session.clearActiveView());
       }
     });
 
@@ -66,8 +69,8 @@ export class ChatPage {
     });
   }
 
-  protected async send(text: string): Promise<void> {
-    const trimmed = text.trim();
+  protected async send(event: ComposerSendEvent): Promise<void> {
+    const trimmed = event.text.trim();
     if (!trimmed) return;
     if (!this.session.activeId()) {
       try {
@@ -77,7 +80,7 @@ export class ChatPage {
         return;
       }
     }
-    this.session.sendStream(trimmed);
+    this.session.sendStream(trimmed, { forceThinking: event.forceThinking });
   }
 
   protected stop(): void {

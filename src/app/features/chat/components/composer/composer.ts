@@ -10,6 +10,11 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+export interface ComposerSendEvent {
+  text: string;
+  forceThinking: boolean;
+}
+
 @Component({
   selector: 'app-composer',
   imports: [FormsModule],
@@ -22,10 +27,11 @@ export class Composer {
   readonly disabled = input<boolean>(false);
   readonly personaName = input<string>('');
 
-  readonly send = output<string>();
+  readonly send = output<ComposerSendEvent>();
   readonly stop = output<void>();
 
   protected readonly text = signal<string>('');
+  protected readonly forceThinking = signal<boolean>(false);
 
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('textarea');
 
@@ -53,7 +59,7 @@ export class Composer {
     if (this.streaming() || this.disabled()) return;
     const value = this.text().trim();
     if (!value) return;
-    this.send.emit(value);
+    this.send.emit({ text: value, forceThinking: this.forceThinking() });
     this.text.set('');
     queueMicrotask(() => this.textarea()?.nativeElement?.focus());
   }

@@ -24,7 +24,7 @@ export class MessageBubble {
 
   private readonly sanitizer = inject(DomSanitizer);
 
-  protected readonly thinkingOpen = signal<boolean>(false);
+  protected readonly thinkingOpen = signal<boolean>(true);
 
   protected readonly contentHtml = computed<SafeHtml>(() =>
     this.sanitizer.bypassSecurityTrustHtml(

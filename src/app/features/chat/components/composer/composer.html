@@ -42,5 +42,16 @@
       </button>
     }
   </div>
-  <div class="hint">Enter to send · Shift+Enter for newline</div>
+  <div class="composer-meta">
+    <label class="thinking-check">
+      <input
+        type="checkbox"
+        [ngModel]="forceThinking()"
+        (ngModelChange)="forceThinking.set($event)"
+        [disabled]="disabled() || streaming()"
+      />
+      <span>Force thinking</span>
+    </label>
+    <div class="hint">Enter to send · Shift+Enter for newline</div>
+  </div>
 </div>

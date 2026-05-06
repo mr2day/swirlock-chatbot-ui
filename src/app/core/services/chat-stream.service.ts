@@ -46,6 +46,7 @@ export class ChatStreamService {
     text: string;
     correlationId?: string;
     thinking?: boolean;
+    forceThinking?: boolean;
     includeDiagnostics?: boolean;
     onEvent: (event: ChatStreamEvent) => void;
     onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
@@ -70,7 +71,8 @@ export class ChatStreamService {
         occurredAt: new Date().toISOString(),
       },
       options: {
-        thinking: args.thinking ?? true,
+        ...(args.thinking === undefined ? {} : { thinking: args.thinking }),
+        ...(args.forceThinking ? { forceThinking: true } : {}),
         ...(args.includeDiagnostics ? { includeDiagnostics: true } : {}),
       },
     };

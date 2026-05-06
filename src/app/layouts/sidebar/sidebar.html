@@ -26,19 +26,19 @@
                   class="session-link"
                   [routerLink]="['/c', s.sessionId]"
                   routerLinkActive="active"
-                  (click)="onSessionClick()"
+                  (click)="onSessionClick(s.sessionId)"
                 >
                   <span class="session-title">{{ s.title }}</span>
-                  <button
-                    class="session-delete"
-                    type="button"
-                    (click)="deleteSession($event, s.sessionId)"
-                    aria-label="Delete chat"
-                    title="Delete chat"
-                  >
-                    ×
-                  </button>
                 </a>
+                <button
+                  class="session-delete"
+                  type="button"
+                  (click)="deleteSession($event, s.sessionId)"
+                  aria-label="Delete chat"
+                  title="Delete chat"
+                >
+                  ×
+                </button>
               </li>
             }
           </ul>
