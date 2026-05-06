@@ -7,10 +7,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: var(--topbar-height);
+  height: calc(var(--topbar-height) + var(--safe-top));
   padding: 0 var(--space-3);
   padding-top: var(--safe-top);
-  height: calc(var(--topbar-height) + var(--safe-top));
   background: var(--persona-bg);
   border-bottom: 1px solid var(--persona-border);
   position: sticky;
@@ -61,8 +60,13 @@
   flex: 1 1 auto;
 }
 
+/*
+ * Topbar exists only on mobile. On desktop the sidebar is permanently
+ * visible and already carries the persona identity, so the main column
+ * is full-bleed with no header at all (matching ChatGPT's desktop layout).
+ */
 @media (min-width: 768px) {
-  .hamburger {
+  :host {
     display: none;
   }
 }

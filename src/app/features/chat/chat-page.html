@@ -1,21 +1,17 @@
 <div class="chat-page">
-  @if (!session.activeId() || session.messages().length === 0) {
-    <div class="centered">
-      <app-empty-state
-        [persona]="persona.active()"
-        [busy]="session.isLoading()"
-        (start)="startNewChat()"
-      />
-    </div>
-  } @else {
-    <div #scrollHost class="messages" role="log" aria-live="polite">
+  <div #scrollHost class="messages" role="log" aria-live="polite">
+    @if (hasMessages()) {
       <div class="messages-inner">
         @for (m of session.messages(); track m.localId) {
           <app-message-bubble [message]="m" [persona]="persona.active()" />
         }
       </div>
-    </div>
-  }
+    } @else {
+      <div class="empty-greeting">
+        <span>How can I help you?</span>
+      </div>
+    }
+  </div>
 
   @if (session.error(); as err) {
     <div class="error-banner" role="alert">

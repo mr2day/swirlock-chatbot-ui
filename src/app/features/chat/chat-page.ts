@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  computed,
   effect,
   inject,
   input,
@@ -12,11 +13,10 @@ import { SessionService } from '../../core/services/session.service';
 import { PersonaService } from '../../core/services/persona.service';
 import { Composer } from './components/composer/composer';
 import { MessageBubble } from './components/message-bubble/message-bubble';
-import { EmptyState } from './components/empty-state/empty-state';
 
 @Component({
   selector: 'app-chat-page',
-  imports: [Composer, MessageBubble, EmptyState],
+  imports: [Composer, MessageBubble],
   templateUrl: './chat-page.html',
   styleUrl: './chat-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -35,10 +35,14 @@ export class ChatPage {
 
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
 
+  protected readonly hasMessages = computed(
+    () => this.session.messages().length > 0,
+  );
+
   constructor() {
     // Whenever the route's sessionId changes, ask SessionService to load
     // the matching session. If the URL has no sessionId, just clear the
-    // active session display (the empty state takes over).
+    // active session display.
     effect(() => {
       const id = this.sessionId();
       if (id && id !== this.session.activeId()) {
@@ -46,14 +50,11 @@ export class ChatPage {
       }
     });
 
-    // Auto-scroll the message list to the bottom whenever new messages
-    // appear or the assistant stream appends a chunk. We read both the
-    // length and the last message's content so the effect re-runs on
-    // every chunk during streaming.
+    // Auto-scroll the message list to the bottom whenever messages change
+    // or the assistant stream appends a chunk.
     effect(() => {
       const list = this.session.messages();
       const last = list[list.length - 1];
-      // Touch fields that change during streaming so the effect tracks them.
       void last?.content;
       void last?.thinking;
       void last?.status;
@@ -63,15 +64,6 @@ export class ChatPage {
         host.scrollTop = host.scrollHeight;
       });
     });
-  }
-
-  protected async startNewChat(): Promise<void> {
-    try {
-      const id = await this.session.newSession();
-      await this.router.navigate(['/c', id]);
-    } catch {
-      /* surfaced via SessionService.error */
-    }
   }
 
   protected async send(text: string): Promise<void> {
