@@ -1,15 +1,13 @@
-import type { ApiMeta } from './api-meta.model';
 import type { ErrorBody } from './error-envelope.model';
 import type { SubmitTurnRequest } from './chat.model';
 
-/**
- * Client to server message on the persistent session WebSocket.
- * Mirrors `SubmitTurnStreamMessage` in the v3 contract.
- */
 export interface SubmitTurnStreamMessage {
-  type: 'submit_turn';
+  type: 'turn.submit';
   correlationId: string;
-  request: SubmitTurnRequest;
+  payload: {
+    sessionId: string;
+    request: SubmitTurnRequest;
+  };
 }
 
 export interface QueueWaitInfo {
@@ -23,11 +21,6 @@ export interface QueueWaitInfo {
   estimatedStartAt?: string;
 }
 
-/**
- * Retrieval progress event forwarded from the upstream RAG Engine.
- * The orchestrator wraps each RAG event in a `retrieval` envelope so the chat
- * client can render search progress without speaking the RAG API directly.
- */
 export interface RetrievalStreamEvent {
   type: string;
   sequence: number;
@@ -46,7 +39,6 @@ export interface DoneDiagnostics {
   memoryFragmentCount: number;
   retrievalMode: string;
   turnRoute?: string;
-  standardAnswerKey?: string;
   shouldRetrieve?: boolean;
   shouldThink?: boolean;
   intent?: string;
@@ -54,62 +46,50 @@ export interface DoneDiagnostics {
   planReason?: string;
 }
 
-export interface ChatStreamAcceptedEvent {
-  type: 'accepted';
-  meta: ApiMeta;
-}
-export interface ChatStreamQueuedEvent {
-  type: 'queued';
-  meta: ApiMeta;
-  data: QueueWaitInfo;
-}
-export interface ChatStreamStartedEvent {
-  type: 'started';
-  meta: ApiMeta;
-}
-export interface ChatStreamRetrievalEvent {
-  type: 'retrieval';
-  meta: ApiMeta;
-  data: RetrievalStreamEvent;
-}
-export interface ChatStreamThinkingEvent {
-  type: 'thinking';
-  meta: ApiMeta;
-  data: { text: string };
-}
-export interface ChatStreamChunkEvent {
-  type: 'chunk';
-  meta: ApiMeta;
-  data: { text: string };
-}
-export interface ChatStreamDoneEvent {
-  type: 'done';
-  meta: ApiMeta;
-  data: {
-    sessionId: string;
-    turnId: string;
-    assistantMessage: {
-      messageId: string;
-      content: string;
-      createdAt: string;
-    };
-    finishReason: 'stop' | 'length' | 'error';
-    citations?: CitationRef[];
-    diagnostics?: DoneDiagnostics;
-  };
-}
-export interface ChatStreamErrorEvent {
-  type: 'error';
-  meta: ApiMeta;
-  error: ErrorBody;
-}
-
 export type ChatStreamEvent =
-  | ChatStreamAcceptedEvent
-  | ChatStreamQueuedEvent
-  | ChatStreamStartedEvent
-  | ChatStreamRetrievalEvent
-  | ChatStreamThinkingEvent
-  | ChatStreamChunkEvent
-  | ChatStreamDoneEvent
-  | ChatStreamErrorEvent;
+  | {
+      type: 'turn.accepted' | 'turn.classifying' | 'turn.started';
+      correlationId: string;
+      payload: Record<string, never>;
+    }
+  | {
+      type: 'turn.queued';
+      correlationId: string;
+      payload: QueueWaitInfo;
+    }
+  | {
+      type: 'turn.retrieval';
+      correlationId: string;
+      payload: { event: RetrievalStreamEvent };
+    }
+  | {
+      type: 'turn.thinking';
+      correlationId: string;
+      payload: { text: string };
+    }
+  | {
+      type: 'turn.chunk';
+      correlationId: string;
+      payload: { text: string };
+    }
+  | {
+      type: 'turn.done';
+      correlationId: string;
+      payload: {
+        sessionId: string;
+        turnId: string;
+        assistantMessage: {
+          messageId: string;
+          content: string;
+          createdAt: string;
+        };
+        finishReason: 'stop' | 'length' | 'error';
+        citations?: CitationRef[];
+        diagnostics?: DoneDiagnostics;
+      };
+    }
+  | {
+      type: 'error';
+      correlationId: string;
+      error: ErrorBody;
+    };

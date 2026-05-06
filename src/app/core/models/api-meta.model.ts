@@ -1,7 +1,6 @@
 /**
- * v3 envelope `meta` block, present on every orchestrator response and on
- * every WebSocket event. See
- * `swirlock-chatbot-contracts/docs/versions/v3/API_CONVENTIONS.md`.
+ * Synthetic compatibility meta block for local UI state. The v4 ecosystem
+ * protocol itself uses the shared WebSocket envelope.
  */
 export interface ApiMeta {
   requestId: string;

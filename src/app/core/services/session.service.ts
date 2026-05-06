@@ -4,7 +4,6 @@ import type {
   SessionSummary,
 } from '../models/chat-message.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
-import { ChatApiService } from './chat-api.service';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
 import { PersonaService } from './persona.service';
 
@@ -70,7 +69,6 @@ function deriveTitle(text: string): string {
  */
 @Injectable({ providedIn: 'root' })
 export class SessionService {
-  private readonly api = inject(ChatApiService);
   private readonly stream = inject(ChatStreamService);
   private readonly persona = inject(PersonaService);
 
@@ -99,7 +97,7 @@ export class SessionService {
       this.stream.closeSession(previousSessionId);
     }
     try {
-      const res = await this.api.createSession({
+      const res = await this.stream.createSession({
         userId: LOCAL_USER_ID,
         displayName: LOCAL_USER_DISPLAY,
         personaId: this.persona.active().id,
@@ -138,7 +136,7 @@ export class SessionService {
     this._messages.set([]);
     this.persistActiveId();
     try {
-      const res = await this.api.getSession(sessionId);
+      const res = await this.stream.getSession(sessionId);
       const messages: ChatMessage[] = res.data.messages.map((m) => ({
         localId: uuid(),
         messageId: m.messageId,
@@ -177,7 +175,7 @@ export class SessionService {
     this._error.set(null);
     this.stream.closeSession(sessionId);
     try {
-      await this.api.deleteSession(sessionId);
+      await this.stream.deleteSession(sessionId);
     } catch (err) {
       const status = (err as { status?: number })?.status;
       if (status !== 404) {
@@ -248,43 +246,44 @@ export class SessionService {
       includeDiagnostics: true,
       onEvent: (evt) => {
         switch (evt.type) {
-          case 'accepted':
+          case 'turn.accepted':
+          case 'turn.classifying':
             this.patchAssistant({ status: 'classifying' });
             break;
-          case 'queued':
+          case 'turn.queued':
             this.patchAssistant({ status: 'queued' });
             break;
-          case 'started':
+          case 'turn.started':
             this.patchAssistant({ status: 'streaming' });
             break;
-          case 'retrieval':
-            this.applyRetrievalEvent(evt.data);
+          case 'turn.retrieval':
+            this.applyRetrievalEvent(evt.payload.event);
             break;
-          case 'thinking':
-            this.appendAssistantThinking(evt.data.text);
+          case 'turn.thinking':
+            this.appendAssistantThinking(evt.payload.text);
             this.patchAssistant({ status: 'thinking' });
             break;
-          case 'chunk':
-            this.appendAssistantContent(evt.data.text);
+          case 'turn.chunk':
+            this.appendAssistantContent(evt.payload.text);
             this.patchAssistant({ status: 'streaming', retrievalStatus: undefined });
             break;
-          case 'done':
+          case 'turn.done':
             this.patchAssistant({
-              messageId: evt.data.assistantMessage.messageId,
-              turnId: evt.data.turnId,
-              content: evt.data.assistantMessage.content,
-              createdAt: evt.data.assistantMessage.createdAt,
+              messageId: evt.payload.assistantMessage.messageId,
+              turnId: evt.payload.turnId,
+              content: evt.payload.assistantMessage.content,
+              createdAt: evt.payload.assistantMessage.createdAt,
               status: 'done',
               retrievalStatus: undefined,
-              citations: evt.data.citations,
-              diagnostics: evt.data.diagnostics,
+              citations: evt.payload.citations,
+              diagnostics: evt.payload.diagnostics,
             });
             this._streaming.set(false);
             this.currentStream = null;
             this._sessions.update((list) =>
               list.map((s) =>
                 s.sessionId === sessionId
-                  ? { ...s, updatedAt: evt.data.assistantMessage.createdAt }
+                  ? { ...s, updatedAt: evt.payload.assistantMessage.createdAt }
                   : s,
               ),
             );

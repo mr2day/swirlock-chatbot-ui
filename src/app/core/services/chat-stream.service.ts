@@ -1,6 +1,13 @@
 import { Injectable, inject } from '@angular/core';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
-import type { SubmitTurnRequest } from '../models/chat.model';
+import type {
+  CreateSessionRequest,
+  CreateSessionResponse,
+  DeleteSessionResponse,
+  GetSessionResponse,
+  SubmitTurnRequest,
+} from '../models/chat.model';
+import type { ApiMeta } from '../models/api-meta.model';
 import type {
   ChatStreamEvent,
   SubmitTurnStreamMessage,
@@ -19,35 +26,112 @@ function uuid(): string {
 }
 
 export interface StreamHandle {
-  /** Cancels the active turn. Until cancel_turn exists, this closes the socket. */
   cancel(): void;
 }
 
+interface V4Envelope<TPayload = unknown> {
+  type: string;
+  correlationId: string;
+  payload?: TPayload;
+  error?: {
+    code: string;
+    message: string;
+    retryable: boolean;
+    details?: Record<string, unknown>;
+  };
+}
+
 interface ActiveTurn {
+  sessionId: string;
   correlationId: string;
   onEvent: (event: ChatStreamEvent) => void;
   onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
 }
 
-interface SessionSocket {
-  ws: WebSocket;
-  activeTurn: ActiveTurn | null;
-  queued: SubmitTurnStreamMessage[];
+interface PendingRequest<TPayload> {
+  successType: string;
+  resolve: (envelope: V4Envelope<TPayload>) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
-/**
- * Session-scoped WebSocket client for the v3 Chat Orchestrator streaming
- * endpoint (`/v2/chat/sessions/:sessionId/turns/stream`).
- *
- * A chat session keeps one WebSocket open and sends multiple `submit_turn`
- * messages over it. The socket is closed when the session is no longer active
- * or when the user cancels the active turn.
- */
 @Injectable({ providedIn: 'root' })
 export class ChatStreamService {
   private readonly cfg = inject(RUNTIME_CONFIG);
   private readonly auth = inject(AuthService);
-  private readonly sockets = new Map<string, SessionSocket>();
+  private ws: WebSocket | null = null;
+  private connecting: Promise<WebSocket> | null = null;
+  private readonly queued: V4Envelope[] = [];
+  private readonly pending = new Map<string, PendingRequest<unknown>>();
+  private activeTurn: ActiveTurn | null = null;
+
+  createSession(args: {
+    userId: string;
+    displayName?: string;
+    personaId: string;
+    correlationId?: string;
+  }): Promise<CreateSessionResponse> {
+    const correlationId = args.correlationId ?? uuid();
+    const request: CreateSessionRequest = {
+      requestContext: {
+        callerService: this.cfg.appId,
+        priority: 'interactive',
+        requestedAt: new Date().toISOString(),
+      },
+      participant: {
+        userId: args.userId,
+        ...(args.displayName ? { displayName: args.displayName } : {}),
+      },
+      app: {
+        appId: this.cfg.appId,
+        personaId: args.personaId,
+      },
+      client: {
+        channel: this.cfg.clientChannel,
+        clientVersion: this.cfg.clientVersion,
+      },
+    };
+
+    return this.requestResponse(
+      'session.create',
+      'session.created',
+      correlationId,
+      { request },
+    ).then((payload) => ({
+      meta: this.meta(correlationId),
+      data: payload as CreateSessionResponse['data'],
+    }));
+  }
+
+  getSession(
+    sessionId: string,
+    correlationId = uuid(),
+  ): Promise<GetSessionResponse> {
+    return this.requestResponse(
+      'session.get',
+      'session.snapshot',
+      correlationId,
+      { sessionId },
+    ).then((payload) => ({
+      meta: this.meta(correlationId),
+      data: payload as GetSessionResponse['data'],
+    }));
+  }
+
+  deleteSession(
+    sessionId: string,
+    correlationId = uuid(),
+  ): Promise<DeleteSessionResponse> {
+    return this.requestResponse(
+      'session.delete',
+      'session.deleted',
+      correlationId,
+      { sessionId },
+    ).then((payload) => ({
+      meta: this.meta(correlationId),
+      data: payload as DeleteSessionResponse['data'],
+    }));
+  }
 
   openTurn(args: {
     sessionId: string;
@@ -60,121 +144,186 @@ export class ChatStreamService {
     onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
   }): StreamHandle {
     const correlationId = args.correlationId ?? uuid();
-    const socket = this.sessionSocket(args.sessionId);
 
-    if (socket.activeTurn) {
+    if (this.activeTurn) {
       args.onEvent(this.localError(correlationId, 'A turn is already active'));
       return { cancel: () => undefined };
     }
 
     const activeTurn: ActiveTurn = {
+      sessionId: args.sessionId,
       correlationId,
       onEvent: args.onEvent,
       onClose: args.onClose,
     };
-    socket.activeTurn = activeTurn;
+    this.activeTurn = activeTurn;
 
     const envelope: SubmitTurnStreamMessage = {
-      type: 'submit_turn',
+      type: 'turn.submit',
       correlationId,
-      request: this.buildRequest(args),
+      payload: {
+        sessionId: args.sessionId,
+        request: this.buildRequest(args),
+      },
     };
 
-    this.sendOrQueue(socket, envelope);
+    this.sendOrQueue(envelope);
 
     return {
       cancel: () => {
-        const current = this.sockets.get(args.sessionId);
-        if (!current || current.activeTurn !== activeTurn) return;
-        this.closeSession(args.sessionId, 1000, 'cancelled by user');
+        if (this.activeTurn !== activeTurn) return;
+        this.sendOrQueue({ type: 'cancel', correlationId });
       },
     };
   }
 
-  closeSession(sessionId: string, code = 1000, reason = 'session inactive'): void {
-    const socket = this.sockets.get(sessionId);
-    if (!socket) return;
-    this.sockets.delete(sessionId);
-    if (
-      socket.ws.readyState === WebSocket.OPEN ||
-      socket.ws.readyState === WebSocket.CONNECTING
-    ) {
-      socket.ws.close(code, reason);
-    }
+  closeSession(_sessionId: string): void {
+    // v4 keeps one app-level socket open; switching sessions does not close it.
   }
 
-  private sessionSocket(sessionId: string): SessionSocket {
-    const existing = this.sockets.get(sessionId);
-    if (
-      existing &&
-      (existing.ws.readyState === WebSocket.OPEN ||
-        existing.ws.readyState === WebSocket.CONNECTING)
-    ) {
-      return existing;
+  private requestResponse<TPayload>(
+    type: string,
+    successType: string,
+    correlationId: string,
+    payload: Record<string, unknown>,
+  ): Promise<TPayload> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(correlationId);
+        reject(new Error(`${type} timed out`));
+      }, 30000);
+
+      this.pending.set(correlationId, {
+        successType,
+        resolve: (envelope) => resolve(envelope.payload as TPayload),
+        reject,
+        timer,
+      });
+
+      this.sendOrQueue({ type, correlationId, payload });
+    });
+  }
+
+  private socket(): Promise<WebSocket> {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return Promise.resolve(this.ws);
     }
+    if (this.connecting) return this.connecting;
 
     const url =
       `${this.cfg.wsBaseUrl.replace(/\/$/, '')}` +
-      `/v2/chat/sessions/${encodeURIComponent(sessionId)}/turns/stream` +
-      `?token=${encodeURIComponent(this.auth.token())}`;
-    const ws = new WebSocket(url);
-    const socket: SessionSocket = {
-      ws,
-      activeTurn: null,
-      queued: [],
-    };
-    this.sockets.set(sessionId, socket);
-
-    ws.addEventListener('open', () => {
-      for (const envelope of socket.queued.splice(0)) {
-        ws.send(JSON.stringify(envelope));
-      }
-    });
-
-    ws.addEventListener('message', (msg) => {
-      const active = socket.activeTurn;
-      if (!active) return;
-      try {
-        const evt = JSON.parse(msg.data as string) as ChatStreamEvent;
-        active.onEvent(evt);
-        if (evt.type === 'done' || evt.type === 'error') {
-          socket.activeTurn = null;
+      `/v4/chat?token=${encodeURIComponent(this.auth.token())}`;
+    const connecting = new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(url);
+      ws.addEventListener('open', () => {
+        this.ws = ws;
+        for (const envelope of this.queued.splice(0)) {
+          ws.send(JSON.stringify(envelope));
         }
-      } catch {
-        /* swallow malformed frames; the orchestrator never sends them */
-      }
-    });
-
-    ws.addEventListener('close', (ev) => {
-      if (this.sockets.get(sessionId) === socket) {
-        this.sockets.delete(sessionId);
-      }
-      const active = socket.activeTurn;
-      socket.activeTurn = null;
-      active?.onClose?.({
-        clean: ev.wasClean,
-        code: ev.code,
-        reason: ev.reason,
+        resolve(ws);
       });
+
+      ws.addEventListener('message', (msg) => {
+        this.handleMessage(msg.data);
+      });
+
+      ws.addEventListener('close', (ev) => {
+        if (this.ws === ws) this.ws = null;
+        this.failPending(new Error('WebSocket closed'));
+        const active = this.activeTurn;
+        this.activeTurn = null;
+        active?.onClose?.({
+          clean: ev.wasClean,
+          code: ev.code,
+          reason: ev.reason,
+        });
+      });
+
+      ws.addEventListener('error', () => {
+        const active = this.activeTurn;
+        active?.onEvent(this.localError(active.correlationId));
+        reject(new Error('WebSocket transport error'));
+      });
+    }).finally(() => {
+      this.connecting = null;
     });
 
-    ws.addEventListener('error', () => {
-      const active = socket.activeTurn;
-      active?.onEvent(this.localError(active.correlationId));
-    });
-
-    return socket;
+    this.connecting = connecting;
+    return connecting;
   }
 
-  private sendOrQueue(
-    socket: SessionSocket,
-    envelope: SubmitTurnStreamMessage,
-  ): void {
-    if (socket.ws.readyState === WebSocket.OPEN) {
-      socket.ws.send(JSON.stringify(envelope));
+  private handleMessage(raw: unknown): void {
+    let envelope: V4Envelope;
+    try {
+      envelope = JSON.parse(String(raw)) as V4Envelope;
+    } catch {
       return;
     }
-    socket.queued.push(envelope);
+
+    const pending = this.pending.get(envelope.correlationId);
+    if (pending) {
+      if (envelope.type === 'error') {
+        clearTimeout(pending.timer);
+        this.pending.delete(envelope.correlationId);
+        pending.reject(new Error(envelope.error?.message ?? 'Request failed'));
+        return;
+      }
+      if (envelope.type === pending.successType) {
+        clearTimeout(pending.timer);
+        this.pending.delete(envelope.correlationId);
+        pending.resolve(envelope);
+        return;
+      }
+    }
+
+    const active = this.activeTurn;
+    if (!active || active.correlationId !== envelope.correlationId) return;
+
+    const event = this.toChatStreamEvent(envelope);
+    if (!event) return;
+    active.onEvent(event);
+    if (event.type === 'turn.done' || event.type === 'error') {
+      this.activeTurn = null;
+    }
+  }
+
+  private toChatStreamEvent(envelope: V4Envelope): ChatStreamEvent | null {
+    const base = {
+      correlationId: envelope.correlationId,
+      payload: envelope.payload as never,
+    };
+    switch (envelope.type) {
+      case 'turn.accepted':
+      case 'turn.classifying':
+      case 'turn.queued':
+      case 'turn.started':
+      case 'turn.retrieval':
+      case 'turn.thinking':
+      case 'turn.chunk':
+      case 'turn.done':
+        return { type: envelope.type, ...base } as ChatStreamEvent;
+      case 'error':
+        return {
+          type: 'error',
+          correlationId: envelope.correlationId,
+          error: envelope.error ?? {
+            code: 'transport_error',
+            message: 'Request failed',
+            retryable: true,
+          },
+        };
+      default:
+        return null;
+    }
+  }
+
+  private sendOrQueue(envelope: V4Envelope): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(envelope));
+      return;
+    }
+    this.queued.push(envelope);
+    void this.socket();
   }
 
   private buildRequest(args: {
@@ -208,17 +357,29 @@ export class ChatStreamService {
   ): ChatStreamEvent {
     return {
       type: 'error',
-      meta: {
-        requestId: uuid(),
-        correlationId,
-        apiVersion: 'v2',
-        servedAt: new Date().toISOString(),
-      },
+      correlationId,
       error: {
         code: 'transport_error',
         message,
         retryable: true,
       },
+    };
+  }
+
+  private failPending(error: Error): void {
+    for (const [correlationId, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      this.pending.delete(correlationId);
+      pending.reject(error);
+    }
+  }
+
+  private meta(correlationId: string): ApiMeta {
+    return {
+      requestId: uuid(),
+      correlationId,
+      apiVersion: 'v4',
+      servedAt: new Date().toISOString(),
     };
   }
 }
