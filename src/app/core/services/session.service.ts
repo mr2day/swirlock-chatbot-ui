@@ -94,6 +94,10 @@ export class SessionService {
   async newSession(): Promise<string> {
     this._error.set(null);
     this._loading.set(true);
+    const previousSessionId = this._activeId();
+    if (previousSessionId) {
+      this.stream.closeSession(previousSessionId);
+    }
     try {
       const res = await this.api.createSession({
         userId: LOCAL_USER_ID,
@@ -123,7 +127,11 @@ export class SessionService {
 
   async openSession(sessionId: string): Promise<void> {
     if (this._activeId() === sessionId && this._messages().length > 0) return;
+    const previousSessionId = this._activeId();
     this.cancelStream();
+    if (previousSessionId && previousSessionId !== sessionId) {
+      this.stream.closeSession(previousSessionId);
+    }
     this._error.set(null);
     this._loading.set(true);
     this._activeId.set(sessionId);
@@ -167,6 +175,7 @@ export class SessionService {
 
   async deleteSession(sessionId: string): Promise<void> {
     this._error.set(null);
+    this.stream.closeSession(sessionId);
     try {
       await this.api.deleteSession(sessionId);
     } catch (err) {
@@ -215,7 +224,7 @@ export class SessionService {
       role: 'assistant',
       content: '',
       thinking: '',
-      status: 'pending',
+      status: 'classifying',
       createdAt: now,
     };
     this._messages.update((list) => [...list, userMsg, assistantMsg]);
@@ -240,7 +249,7 @@ export class SessionService {
       onEvent: (evt) => {
         switch (evt.type) {
           case 'accepted':
-            this.patchAssistant({ status: 'pending' });
+            this.patchAssistant({ status: 'classifying' });
             break;
           case 'queued':
             this.patchAssistant({ status: 'queued' });
@@ -270,6 +279,8 @@ export class SessionService {
               citations: evt.data.citations,
               diagnostics: evt.data.diagnostics,
             });
+            this._streaming.set(false);
+            this.currentStream = null;
             this._sessions.update((list) =>
               list.map((s) =>
                 s.sessionId === sessionId
@@ -285,6 +296,8 @@ export class SessionService {
               errorMessage: evt.error.message,
               retrievalStatus: undefined,
             });
+            this._streaming.set(false);
+            this.currentStream = null;
             this._error.set(evt.error.message);
             break;
         }
@@ -311,7 +324,11 @@ export class SessionService {
 
   clearActiveView(): void {
     if (this._activeId() === null && this._messages().length === 0) return;
+    const sessionId = this._activeId();
     this.cancelStream();
+    if (sessionId) {
+      this.stream.closeSession(sessionId);
+    }
     this._activeId.set(null);
     this._messages.set([]);
     this.persistActiveId();
@@ -319,6 +336,10 @@ export class SessionService {
 
   /** Forget local cache. Server keeps its own copy. */
   clearLocalCache(): void {
+    const sessionId = this._activeId();
+    if (sessionId) {
+      this.stream.closeSession(sessionId);
+    }
     try {
       localStorage.removeItem(SESSIONS_KEY);
       localStorage.removeItem(ACTIVE_SESSION_KEY);
@@ -328,6 +349,8 @@ export class SessionService {
     this._sessions.set([]);
     this._activeId.set(null);
     this._messages.set([]);
+    this.currentStream = null;
+    this._streaming.set(false);
   }
 
   private applyRetrievalEvent(event: RetrievalStreamEvent): void {

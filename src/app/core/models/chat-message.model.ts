@@ -8,6 +8,7 @@ import type { CitationRef, DoneDiagnostics } from './stream-event.model';
  */
 export type ChatMessageStatus =
   | 'pending'
+  | 'classifying'
   | 'queued'
   | 'retrieving'
   | 'thinking'

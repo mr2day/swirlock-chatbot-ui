@@ -8,6 +8,10 @@ session management and over WebSocket for streamed turns. Mobile-first,
 dark-themed, persona-skinnable, ready to be wrapped with Capacitor for
 iOS and Android.
 
+The active chat session keeps one persistent WebSocket open and sends each
+turn over that connection. The assistant bubble shows `Classifying...` while
+the orchestrator is routing the turn through the Utility LLM.
+
 For a deep dive into the architecture, persona model, and per-folder
 layout see [`MANIFEST.md`](MANIFEST.md). For the contract this UI
 implements, see

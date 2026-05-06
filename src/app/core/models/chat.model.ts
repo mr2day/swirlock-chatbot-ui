@@ -107,6 +107,13 @@ export interface SubmitTurnResponseData {
     retrievalUsed: boolean;
     memoryFragmentCount: number;
     retrievalMode: 'none' | 'local_rag' | 'live_web' | 'local_and_live';
+    turnRoute?: string;
+    standardAnswerKey?: string;
+    shouldRetrieve?: boolean;
+    shouldThink?: boolean;
+    intent?: string;
+    freshness?: string;
+    planReason?: string;
   };
 }
 

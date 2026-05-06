@@ -3,7 +3,7 @@ import type { ErrorBody } from './error-envelope.model';
 import type { SubmitTurnRequest } from './chat.model';
 
 /**
- * First and only client → server message on the streaming WebSocket.
+ * Client to server message on the persistent session WebSocket.
  * Mirrors `SubmitTurnStreamMessage` in the v3 contract.
  */
 export interface SubmitTurnStreamMessage {
@@ -25,9 +25,8 @@ export interface QueueWaitInfo {
 
 /**
  * Retrieval progress event forwarded from the upstream RAG Engine.
- * The orchestrator wraps each RAG SSE event in a `retrieval` envelope
- * so the chat client can render ChatGPT-style "searching the web…"
- * progress without speaking the RAG API directly.
+ * The orchestrator wraps each RAG event in a `retrieval` envelope so the chat
+ * client can render search progress without speaking the RAG API directly.
  */
 export interface RetrievalStreamEvent {
   type: string;
@@ -46,6 +45,13 @@ export interface DoneDiagnostics {
   retrievalUsed: boolean;
   memoryFragmentCount: number;
   retrievalMode: string;
+  turnRoute?: string;
+  standardAnswerKey?: string;
+  shouldRetrieve?: boolean;
+  shouldThink?: boolean;
+  intent?: string;
+  freshness?: string;
+  planReason?: string;
 }
 
 export interface ChatStreamAcceptedEvent {
