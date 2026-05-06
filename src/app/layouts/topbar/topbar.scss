@@ -1,0 +1,68 @@
+:host {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--topbar-height);
+  padding: 0 var(--space-3);
+  padding-top: var(--safe-top);
+  height: calc(var(--topbar-height) + var(--safe-top));
+  background: var(--persona-bg);
+  border-bottom: 1px solid var(--persona-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.hamburger {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--persona-text-secondary);
+  border-radius: var(--radius-md);
+}
+
+.hamburger:hover {
+  background: var(--persona-surface-elevated);
+  color: var(--persona-text-primary);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.title-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--persona-surface-elevated);
+}
+
+.title-name {
+  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--persona-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+@media (min-width: 768px) {
+  .hamburger {
+    display: none;
+  }
+}

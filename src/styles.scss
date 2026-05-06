@@ -1,0 +1,159 @@
+/* ---------------------------------------------------------------- *
+ * Gigi the Robot — global styles
+ * ----------------------------------------------------------------
+ * The colors below are *fallback defaults*. The active persona's
+ * theme is applied as `--persona-*` custom properties on `:root` by
+ * `PersonaService`, so swapping personas re-skins the whole app.
+ * Components only ever reference `--persona-*` values, never these
+ * defaults directly.
+ * ---------------------------------------------------------------- */
+
+:root {
+  --persona-bg: #262627;
+  --persona-surface: #1f1f20;
+  --persona-surface-elevated: #2c2c2e;
+  --persona-border: rgba(255, 255, 255, 0.08);
+  --persona-text-primary: #f5f5f5;
+  --persona-text-secondary: rgba(245, 245, 245, 0.65);
+  --persona-text-muted: rgba(245, 245, 245, 0.4);
+  --persona-accent: #f5b916;
+  --persona-accent-contrast: #1a1a1b;
+  --persona-bubble-user: #3a3a3c;
+  --persona-bubble-assistant: transparent;
+  --persona-danger: #ff6b6b;
+
+  /* Spacing scale, mobile-first. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Type scale. */
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+
+  /* Radii. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Layout. */
+  --sidebar-width: 280px;
+  --topbar-height: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--persona-text-primary);
+  background: var(--persona-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+a {
+  color: var(--persona-accent);
+  text-decoration: none;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+textarea {
+  resize: none;
+}
+
+::selection {
+  background: var(--persona-accent);
+  color: var(--persona-accent-contrast);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--persona-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--persona-border);
+  border-radius: var(--radius-pill);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prose {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.prose code {
+  background: var(--persona-surface-elevated);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.prose pre {
+  background: var(--persona-surface-elevated);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+}

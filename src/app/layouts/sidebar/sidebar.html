@@ -1,0 +1,53 @@
+<div class="sidebar">
+  <div class="brand">
+    <img class="brand-logo" [src]="persona.active().logoUrl" alt="" />
+    <div class="brand-text">
+      <div class="brand-name">{{ persona.active().name }}</div>
+      <div class="brand-tagline">{{ persona.active().shortDescription }}</div>
+    </div>
+  </div>
+
+  <button class="new-chat" type="button" (click)="newChat()" [disabled]="session.isLoading()">
+    <span class="plus" aria-hidden="true">+</span>
+    <span>New chat</span>
+  </button>
+
+  <nav class="sessions" aria-label="Conversation history">
+    @if (session.sessions().length === 0) {
+      <div class="empty">No chats yet. Start one above.</div>
+    } @else {
+      @for (group of groups(); track group.label) {
+        <div class="group">
+          <div class="group-label">{{ group.label }}</div>
+          <ul class="group-list">
+            @for (s of group.items; track s.sessionId) {
+              <li class="session-row">
+                <a
+                  class="session-link"
+                  [routerLink]="['/c', s.sessionId]"
+                  routerLinkActive="active"
+                  (click)="onSessionClick()"
+                >
+                  <span class="session-title">{{ s.title }}</span>
+                  <button
+                    class="session-delete"
+                    type="button"
+                    (click)="deleteSession($event, s.sessionId)"
+                    aria-label="Delete chat"
+                    title="Delete chat"
+                  >
+                    ×
+                  </button>
+                </a>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    }
+  </nav>
+
+  <footer class="footer">
+    <span class="footer-text">v0.1 · connected to local orchestrator</span>
+  </footer>
+</div>

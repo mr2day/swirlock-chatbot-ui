@@ -1,0 +1,100 @@
+<article
+  class="bubble"
+  [class.is-user]="message().role === 'user'"
+  [class.is-assistant]="message().role === 'assistant'"
+  [class.is-error]="message().status === 'error'"
+>
+  <div class="avatar" aria-hidden="true">
+    @if (message().role === 'assistant') {
+      <img class="avatar-img" [src]="persona().logoUrl" alt="" />
+    } @else {
+      <span class="avatar-initial">Y</span>
+    }
+  </div>
+
+  <div class="body">
+    <div class="author">
+      @if (message().role === 'assistant') {
+        <span>{{ persona().name }}</span>
+      } @else {
+        <span>You</span>
+      }
+    </div>
+
+    @if (message().retrievalStatus; as label) {
+      <div class="retrieval">
+        <span class="retrieval-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14">
+            <circle
+              cx="11"
+              cy="11"
+              r="6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+            <path
+              d="M16 16l4 4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </span>
+        <span>{{ label }}</span>
+      </div>
+    }
+
+    @if (hasThinking()) {
+      <button
+        type="button"
+        class="thinking-toggle"
+        (click)="toggleThinking()"
+        [attr.aria-expanded]="thinkingOpen()"
+      >
+        <span class="thinking-icon">{{ thinkingOpen() ? '▾' : '▸' }}</span>
+        <span>Thinking</span>
+      </button>
+      @if (thinkingOpen()) {
+        <div class="thinking">{{ message().thinking }}</div>
+      }
+    }
+
+    @if (statusLabel(); as label) {
+      <div class="status">
+        @if (isStreamingActive()) {
+          <span class="status-dot" aria-hidden="true"></span>
+        }
+        <span>{{ label }}</span>
+      </div>
+    }
+
+    @if (message().content.length > 0) {
+      <div class="content prose" [innerHTML]="contentHtml()"></div>
+    } @else if (isStreamingActive() && !hasThinking()) {
+      <div class="typing" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+    }
+
+    @if (message().citations?.length) {
+      <details class="citations">
+        <summary>Sources ({{ message().citations!.length }})</summary>
+        <ol class="citation-list">
+          @for (c of message().citations!; track c.evidenceId) {
+            <li>
+              @if (c.sourceUrl) {
+                <a [href]="c.sourceUrl" target="_blank" rel="noopener noreferrer">
+                  {{ c.sourceTitle }}
+                </a>
+              } @else {
+                <span>{{ c.sourceTitle }}</span>
+              }
+            </li>
+          }
+        </ol>
+      </details>
+    }
+  </div>
+</article>

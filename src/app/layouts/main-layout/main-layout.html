@@ -1,0 +1,21 @@
+<div class="layout" [class.sidebar-open]="layout.sidebarOpen()">
+  <aside class="sidebar-host" aria-label="Conversations">
+    <app-sidebar />
+  </aside>
+
+  <main class="main">
+    <app-topbar />
+    <div class="content">
+      <router-outlet />
+    </div>
+  </main>
+
+  @if (layout.sidebarOpen() && layout.isMobile()) {
+    <button
+      class="scrim"
+      type="button"
+      (click)="closeDrawer()"
+      aria-label="Close sidebar"
+    ></button>
+  }
+</div>

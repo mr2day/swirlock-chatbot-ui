@@ -1,0 +1,25 @@
+<div class="empty-state">
+  <img class="hero" [src]="persona().logoUrl" alt="" />
+  <h1 class="title">{{ persona().name }}</h1>
+  <p class="tagline">{{ persona().shortDescription }}</p>
+  <p class="greeting">{{ persona().greeting }}</p>
+
+  <button
+    type="button"
+    class="cta"
+    (click)="onStart()"
+    [disabled]="busy()"
+  >
+    @if (busy()) {
+      Starting…
+    } @else {
+      Start a new chat
+    }
+  </button>
+
+  <div class="suggestions" aria-hidden="true">
+    @for (s of suggestions; track s) {
+      <div class="suggestion">{{ s }}</div>
+    }
+  </div>
+</div>
