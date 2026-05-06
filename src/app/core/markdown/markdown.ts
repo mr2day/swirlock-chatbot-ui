@@ -18,5 +18,5 @@ export function renderMarkdownSafe(input: string | null | undefined): string {
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'lang'],
-  });
+  }).trim();
 }
