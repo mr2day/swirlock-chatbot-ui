@@ -10,7 +10,7 @@ import type { Persona } from './persona.model';
 export const GIGI_THE_ROBOT: Persona = {
   id: 'gigi-the-robot',
   name: 'Gigi the Robot',
-  shortDescription: 'Friendly chibi robot, ready to chat.',
+  shortDescription: 'Friendly robot buddy',
   logoUrl: 'personas/gigi-the-robot/logo.png',
   greeting: "Hi! I'm Gigi. Ask me anything.",
   theme: {
