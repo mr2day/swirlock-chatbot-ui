@@ -34,8 +34,6 @@ const RETRIEVAL_LABELS: Record<string, string | null> = {
   'utility_llm.extraction_summaries.started': 'Summarizing sources…',
   'utility_llm.extraction_summaries.completed': 'Summaries ready',
   'evidence.chunk': null,
-  'utility_llm.evidence_synthesis.started': 'Synthesizing evidence…',
-  'utility_llm.evidence_synthesis.completed': 'Evidence ready',
   'retrieval.completed': 'Retrieval complete',
   'retrieval.failed': 'Retrieval failed',
 };
