@@ -3,7 +3,12 @@
     @if (hasMessages()) {
       <div class="messages-inner">
         @for (m of session.messages(); track m.localId) {
-          <app-message-bubble [message]="m" [persona]="persona.active()" />
+          <app-message-bubble
+            [message]="m"
+            [persona]="persona.active()"
+            (grantLocation)="onGrantLocation($event)"
+            (denyLocation)="onDenyLocation($event)"
+          />
         }
       </div>
     } @else {

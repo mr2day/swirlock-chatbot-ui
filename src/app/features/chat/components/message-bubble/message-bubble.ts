@@ -2,8 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  EventEmitter,
   inject,
   input,
+  Output,
   signal,
 } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -22,9 +24,28 @@ export class MessageBubble {
   readonly message = input.required<ChatMessage>();
   readonly persona = input.required<Persona>();
 
+  @Output() readonly grantLocation = new EventEmitter<string>();
+  @Output() readonly denyLocation = new EventEmitter<string>();
+
   private readonly sanitizer = inject(DomSanitizer);
 
   protected readonly thinkingOpen = signal<boolean>(true);
+
+  protected readonly locationPrompt = computed(() => this.message().locationPrompt);
+
+  protected onAllowLocation(): void {
+    const prompt = this.message().locationPrompt;
+    if (prompt && prompt.pending) {
+      this.grantLocation.emit(prompt.correlationId);
+    }
+  }
+
+  protected onDenyLocation(): void {
+    const prompt = this.message().locationPrompt;
+    if (prompt && prompt.pending) {
+      this.denyLocation.emit(prompt.correlationId);
+    }
+  }
 
   protected readonly contentHtml = computed<SafeHtml>(() =>
     this.sanitizer.bypassSecurityTrustHtml(
@@ -47,6 +68,8 @@ export class MessageBubble {
         return 'Queued...';
       case 'retrieving':
         return null;
+      case 'awaiting_location':
+        return null;
       case 'thinking':
         return 'Thinking...';
       case 'streaming':
@@ -67,6 +90,7 @@ export class MessageBubble {
       s === 'classifying' ||
       s === 'queued' ||
       s === 'retrieving' ||
+      s === 'awaiting_location' ||
       s === 'thinking' ||
       s === 'streaming'
     );

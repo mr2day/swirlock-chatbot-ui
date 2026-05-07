@@ -5,6 +5,7 @@ import type {
 } from '../models/chat-message.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
+import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
 
 const SESSIONS_KEY = 'gigi.sessions';
@@ -69,6 +70,7 @@ function deriveTitle(text: string): string {
 export class SessionService {
   private readonly stream = inject(ChatStreamService);
   private readonly persona = inject(PersonaService);
+  private readonly location = inject(LocationService);
 
   private readonly _sessions = signal<SessionSummary[]>(this.loadSessions());
   private readonly _activeId = signal<string | null>(this.loadActiveId());
@@ -257,6 +259,9 @@ export class SessionService {
           case 'turn.retrieval':
             this.applyRetrievalEvent(evt.payload.event);
             break;
+          case 'turn.location_required':
+            void this.handleLocationRequired(evt.correlationId);
+            break;
           case 'turn.thinking':
             this.appendAssistantThinking(evt.payload.text);
             this.patchAssistant({ status: 'thinking' });
@@ -348,6 +353,119 @@ export class SessionService {
     this._messages.set([]);
     this.currentStream = null;
     this._streaming.set(false);
+  }
+
+  /**
+   * Called when the orchestrator emits `turn.location_required` for the
+   * active turn. If the user has previously granted location, fetch silently
+   * and respond. Otherwise put the assistant message into an
+   * `awaiting_location` state so the bubble can render the permission card.
+   */
+  private async handleLocationRequired(correlationId: string): Promise<void> {
+    const stored = this.location.getStoredPermission();
+
+    if (stored === 'granted') {
+      const fetched = await this.location.fetchCurrentLocation();
+      if (fetched) {
+        this.stream.sendLocationResponse(correlationId, {
+          available: true,
+          location: fetched,
+        });
+        this.patchAssistant({
+          status: 'retrieving',
+          retrievalStatus: 'Using your location…',
+        });
+      } else {
+        this.stream.sendLocationResponse(correlationId, {
+          available: false,
+          reason: 'unavailable',
+        });
+        this.patchAssistant({
+          status: 'retrieving',
+          retrievalStatus: 'Continuing without location…',
+          locationPrompt: {
+            correlationId,
+            pending: false,
+            resolution: 'unavailable',
+          },
+        });
+      }
+      return;
+    }
+
+    if (stored === 'denied') {
+      this.stream.sendLocationResponse(correlationId, {
+        available: false,
+        reason: 'denied',
+      });
+      this.patchAssistant({
+        status: 'retrieving',
+        retrievalStatus: 'Continuing without location…',
+        locationPrompt: {
+          correlationId,
+          pending: false,
+          resolution: 'denied',
+        },
+      });
+      return;
+    }
+
+    this.patchAssistant({
+      status: 'awaiting_location',
+      retrievalStatus: undefined,
+      locationPrompt: { correlationId, pending: true },
+    });
+  }
+
+  /**
+   * Called by the location-permission card when the user clicks Allow.
+   * Stores the grant in localStorage, fetches coords, and replies to the
+   * orchestrator so the paused turn can continue.
+   */
+  async grantLocation(correlationId: string): Promise<void> {
+    this.location.setStoredPermission('granted');
+    const fetched = await this.location.fetchCurrentLocation();
+    if (fetched) {
+      this.stream.sendLocationResponse(correlationId, {
+        available: true,
+        location: fetched,
+      });
+      this.patchAssistant({
+        status: 'retrieving',
+        retrievalStatus: 'Using your location…',
+        locationPrompt: { correlationId, pending: false, resolution: 'granted' },
+      });
+      return;
+    }
+    this.stream.sendLocationResponse(correlationId, {
+      available: false,
+      reason: 'unavailable',
+    });
+    this.patchAssistant({
+      status: 'retrieving',
+      retrievalStatus: 'Continuing without location…',
+      locationPrompt: {
+        correlationId,
+        pending: false,
+        resolution: 'unavailable',
+      },
+    });
+  }
+
+  /**
+   * Called by the location-permission card when the user clicks Deny.
+   */
+  denyLocation(correlationId: string): void {
+    this.location.setStoredPermission('denied');
+    this.stream.sendLocationResponse(correlationId, {
+      available: false,
+      reason: 'denied',
+    });
+    this.patchAssistant({
+      status: 'retrieving',
+      retrievalStatus: 'Continuing without location…',
+      locationPrompt: { correlationId, pending: false, resolution: 'denied' },
+    });
   }
 
   private applyRetrievalEvent(event: RetrievalStreamEvent): void {

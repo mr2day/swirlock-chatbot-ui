@@ -11,11 +11,20 @@ export type ChatMessageStatus =
   | 'classifying'
   | 'queued'
   | 'retrieving'
+  | 'awaiting_location'
   | 'thinking'
   | 'streaming'
   | 'done'
   | 'error'
   | 'cancelled';
+
+export interface LocationPromptState {
+  correlationId: string;
+  /** True while the inline card is awaiting the user's Allow/Deny click. */
+  pending: boolean;
+  /** Set once the user resolves the prompt, so we can show a small footnote. */
+  resolution?: 'granted' | 'denied' | 'unavailable';
+}
 
 export interface ChatMessage {
   /** Stable client-side id; replaced with `messageId` after persistence. */
@@ -33,6 +42,8 @@ export interface ChatMessage {
   status: ChatMessageStatus;
   /** Friendly current-phase label derived from RAG `retrieval` events. */
   retrievalStatus?: string;
+  /** Inline location-permission prompt state when the orchestrator asked for location. */
+  locationPrompt?: LocationPromptState;
   /** RAG evidence surfaced on `done`. */
   citations?: CitationRef[];
   /** Optional diagnostics surfaced on `done` when requested. */

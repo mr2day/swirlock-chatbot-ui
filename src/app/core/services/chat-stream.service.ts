@@ -140,6 +140,7 @@ export class ChatStreamService {
     thinking?: boolean;
     forceThinking?: boolean;
     includeDiagnostics?: boolean;
+    userLocation?: import('../models/chat.model').UserLocation;
     onEvent: (event: ChatStreamEvent) => void;
     onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
   }): StreamHandle {
@@ -298,6 +299,7 @@ export class ChatStreamService {
       case 'turn.queued':
       case 'turn.started':
       case 'turn.retrieval':
+      case 'turn.location_required':
       case 'turn.thinking':
       case 'turn.chunk':
       case 'turn.done':
@@ -331,6 +333,7 @@ export class ChatStreamService {
     thinking?: boolean;
     forceThinking?: boolean;
     includeDiagnostics?: boolean;
+    userLocation?: import('../models/chat.model').UserLocation;
   }): SubmitTurnRequest {
     return {
       requestContext: {
@@ -343,12 +346,29 @@ export class ChatStreamService {
         parts: [{ type: 'text', text: args.text }],
         occurredAt: new Date().toISOString(),
       },
+      ...(args.userLocation ? { userLocation: args.userLocation } : {}),
       options: {
         ...(args.thinking === undefined ? {} : { thinking: args.thinking }),
         ...(args.forceThinking ? { forceThinking: true } : {}),
         ...(args.includeDiagnostics ? { includeDiagnostics: true } : {}),
       },
     };
+  }
+
+  sendLocationResponse(
+    correlationId: string,
+    response:
+      | {
+          available: true;
+          location: import('../models/chat.model').UserLocation;
+        }
+      | { available: false; reason: 'denied' | 'unavailable' },
+  ): void {
+    this.sendOrQueue({
+      type: 'turn.location_response',
+      correlationId,
+      payload: response,
+    });
   }
 
   private localError(

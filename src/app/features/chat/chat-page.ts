@@ -86,4 +86,12 @@ export class ChatPage {
   protected stop(): void {
     this.session.cancelStream();
   }
+
+  protected onGrantLocation(correlationId: string): void {
+    void this.session.grantLocation(correlationId);
+  }
+
+  protected onDenyLocation(correlationId: string): void {
+    this.session.denyLocation(correlationId);
+  }
 }

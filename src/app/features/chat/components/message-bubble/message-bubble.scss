@@ -225,3 +225,66 @@
 .citation-list a:hover {
   text-decoration: underline;
 }
+
+.location-card {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--persona-border, rgba(255, 255, 255, 0.18));
+  border-radius: var(--radius-md, 12px);
+  background: var(--persona-surface-elevated, rgba(255, 255, 255, 0.04));
+  display: grid;
+  gap: var(--space-2);
+  font-size: 0.92rem;
+  color: var(--persona-text, inherit);
+}
+
+.location-card.resolved {
+  font-size: 0.82rem;
+  opacity: 0.78;
+  font-style: italic;
+}
+
+.location-card-text {
+  line-height: 1.45;
+}
+
+.location-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.location-allow,
+.location-deny {
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.45rem 0.95rem;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.location-allow {
+  background: var(--persona-accent, #4f8cff);
+  color: var(--persona-accent-on, #fff);
+}
+
+.location-allow:hover {
+  filter: brightness(1.08);
+}
+
+.location-deny {
+  background: transparent;
+  color: var(--persona-text, inherit);
+  border-color: var(--persona-border, rgba(255, 255, 255, 0.22));
+}
+
+.location-deny:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.location-card-foot {
+  font-size: 0.78rem;
+  opacity: 0.7;
+}

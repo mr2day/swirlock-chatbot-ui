@@ -63,6 +63,11 @@ export type ChatStreamEvent =
       payload: { event: RetrievalStreamEvent };
     }
   | {
+      type: 'turn.location_required';
+      correlationId: string;
+      payload: { requestedAt: string; timeoutMs: number };
+    }
+  | {
       type: 'turn.thinking';
       correlationId: string;
       payload: { text: string };

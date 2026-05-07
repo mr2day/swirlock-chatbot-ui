@@ -70,6 +70,38 @@
       </div>
     }
 
+    @if (locationPrompt(); as prompt) {
+      @if (prompt.pending) {
+        <div class="location-card" role="group" aria-label="Location permission request">
+          <div class="location-card-text">
+            For an accurate answer, this question needs your current location.
+            Allow Gigi to read it from your device for this and future location-aware
+            questions?
+          </div>
+          <div class="location-card-actions">
+            <button type="button" class="location-deny" (click)="onDenyLocation()">
+              Don't allow
+            </button>
+            <button type="button" class="location-allow" (click)="onAllowLocation()">
+              Allow location
+            </button>
+          </div>
+          <div class="location-card-foot">
+            Your choice is saved in this browser. You can change it any time
+            by clearing the site's data.
+          </div>
+        </div>
+      } @else if (prompt.resolution === 'denied') {
+        <div class="location-card resolved">
+          Continued without location. The answer may not be location-accurate.
+        </div>
+      } @else if (prompt.resolution === 'unavailable') {
+        <div class="location-card resolved">
+          Couldn't read your location. Continuing without it.
+        </div>
+      }
+    }
+
     @if (message().content.length > 0) {
       <div class="content prose" [innerHTML]="contentHtml()"></div>
     } @else if (isStreamingActive() && !hasThinking()) {

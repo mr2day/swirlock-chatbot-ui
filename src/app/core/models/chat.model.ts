@@ -77,10 +77,18 @@ export interface DeleteSessionResponse {
 
 /* ---------- Turns ---------- */
 
+export interface UserLocation {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number;
+  capturedAt?: string;
+}
+
 export interface SubmitTurnRequest {
   requestContext: RequestContext;
   clientTurnId?: string;
   message: { parts: InputPart[]; occurredAt: string };
+  userLocation?: UserLocation;
   options?: {
     responseMode?: 'blocking';
     maxOutputTokens?: number;
