@@ -18,6 +18,11 @@ const LOCAL_USER_DISPLAY = 'You';
  * progress labels the chat UI can show inline ("Searching the web…",
  * "Reading sources…"). Returning `null` means: don't surface this event.
  */
+/**
+ * Generic per-event-type labels. Provider-specific live.* events also fall
+ * through {@link buildRetrievalLabel} so e.g. Wikipedia and Exa show
+ * distinct copy.
+ */
 const RETRIEVAL_LABELS: Record<string, string | null> = {
   'retrieval.started': 'Starting retrieval…',
   'utility_llm.retrieval_support.started': 'Planning the search…',
@@ -34,10 +39,42 @@ const RETRIEVAL_LABELS: Record<string, string | null> = {
   'live.extract.completed': 'Sources read',
   'utility_llm.extraction_summaries.started': 'Summarizing sources…',
   'utility_llm.extraction_summaries.completed': 'Summaries ready',
+  'utility_llm.document_retention.started': 'Deciding what to keep…',
+  'utility_llm.document_retention.completed': 'Decided what to keep',
   'evidence.chunk': null,
   'retrieval.completed': 'Retrieval complete',
   'retrieval.failed': 'Retrieval failed',
 };
+
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  exa: 'the web (Exa)',
+  wikipedia: 'Wikipedia',
+};
+
+function buildRetrievalLabel(
+  event: RetrievalStreamEvent,
+): string | null | undefined {
+  const provider =
+    typeof event.data?.['provider'] === 'string'
+      ? (event.data['provider'] as string)
+      : undefined;
+  if (provider) {
+    const friendly = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+    switch (event.type) {
+      case 'live.search.started':
+        return `Searching ${friendly}…`;
+      case 'live.search.completed':
+        return `Search of ${friendly} done`;
+      case 'live.extract.started':
+        return `Reading sources from ${friendly}…`;
+      case 'live.extract.completed':
+        return `Sources from ${friendly} read`;
+      default:
+        break;
+    }
+  }
+  return RETRIEVAL_LABELS[event.type];
+}
 
 function uuid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -248,16 +285,26 @@ export class SessionService {
         switch (evt.type) {
           case 'turn.accepted':
           case 'turn.classifying':
-            this.patchAssistant({ status: 'classifying' });
+            this.patchAssistant({
+              status: 'classifying',
+              retrievalStatus: undefined,
+            });
             break;
           case 'turn.queued':
             this.patchAssistant({ status: 'queued' });
             break;
           case 'turn.started':
-            this.patchAssistant({ status: 'streaming' });
+            this.patchAssistant({
+              status: 'streaming',
+              retrievalStatus: undefined,
+              agentStatus: undefined,
+            });
             break;
           case 'turn.retrieval':
             this.applyRetrievalEvent(evt.payload.event);
+            break;
+          case 'turn.agent':
+            this.applyAgentEvent(evt.payload);
             break;
           case 'turn.location_required':
             void this.handleLocationRequired(evt.correlationId);
@@ -268,7 +315,11 @@ export class SessionService {
             break;
           case 'turn.chunk':
             this.appendAssistantContent(evt.payload.text);
-            this.patchAssistant({ status: 'streaming', retrievalStatus: undefined });
+            this.patchAssistant({
+              status: 'streaming',
+              retrievalStatus: undefined,
+              agentStatus: undefined,
+            });
             break;
           case 'turn.done':
             this.patchAssistant({
@@ -278,6 +329,7 @@ export class SessionService {
               createdAt: evt.payload.assistantMessage.createdAt,
               status: 'done',
               retrievalStatus: undefined,
+              agentStatus: undefined,
               citations: evt.payload.citations,
               diagnostics: evt.payload.diagnostics,
             });
@@ -297,6 +349,7 @@ export class SessionService {
               status: 'error',
               errorMessage: evt.error.message,
               retrievalStatus: undefined,
+              agentStatus: undefined,
             });
             this._streaming.set(false);
             this.currentStream = null;
@@ -468,13 +521,51 @@ export class SessionService {
     });
   }
 
+  /**
+   * Surfaces orchestrator agent activity ({@code turn.agent}) so the bubble
+   * can show the user what the agent is doing between control steps.
+   * `command_started` (e.g. "Searching: 'current weather'") wins over
+   * `command_completed` and `plan` summaries.
+   */
+  private applyAgentEvent(payload: {
+    phase:
+      | 'classifying'
+      | 'command_started'
+      | 'command_completed'
+      | 'plan';
+    command?: string;
+    summary: string;
+  }): void {
+    if (payload.phase === 'command_completed') {
+      // Final retrieval/RAG events already cover this; leave the
+      // retrievalStatus alone but clear stale agentStatus.
+      this.patchAssistant({ agentStatus: undefined });
+      return;
+    }
+    this.patchAssistant({
+      agentStatus: payload.summary,
+    });
+  }
+
   private applyRetrievalEvent(event: RetrievalStreamEvent): void {
-    const label = RETRIEVAL_LABELS[event.type];
+    if (event.type === 'retrieval.completed' || event.type === 'retrieval.failed') {
+      // Retrieval phase is over. Clear the retrieval label and let the
+      // orchestrator's next signal (turn.classifying for the agent's next
+      // control step, or turn.started for the streaming final answer) drive
+      // the UI from here. Without this reset, the last retrieval label
+      // would linger for several seconds while the agent decides next steps.
+      this.patchAssistant({
+        status: 'classifying',
+        retrievalStatus: undefined,
+      });
+      return;
+    }
+    const label = buildRetrievalLabel(event);
     if (label === null) return; // mapped intentionally to "no surface"
-    const display = label ?? event.type;
+    if (label === undefined) return; // unknown event types are not surfaced as raw strings
     this.patchAssistant({
       status: 'retrieving',
-      retrievalStatus: display,
+      retrievalStatus: label,
     });
   }
 

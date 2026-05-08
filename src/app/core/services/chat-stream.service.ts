@@ -303,6 +303,7 @@ export class ChatStreamService {
       case 'turn.thinking':
       case 'turn.chunk':
       case 'turn.done':
+      case 'turn.agent':
         return { type: envelope.type, ...base } as ChatStreamEvent;
       case 'error':
         return {

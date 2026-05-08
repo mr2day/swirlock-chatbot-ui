@@ -42,6 +42,9 @@ export interface ChatMessage {
   status: ChatMessageStatus;
   /** Friendly current-phase label derived from RAG `retrieval` events. */
   retrievalStatus?: string;
+  /** Friendly current-phase label derived from agent `turn.agent` events
+   *  (commands, plan creation/updates) shown alongside retrieval status. */
+  agentStatus?: string;
   /** Inline location-permission prompt state when the orchestrator asked for location. */
   locationPrompt?: LocationPromptState;
   /** RAG evidence surfaced on `done`. */

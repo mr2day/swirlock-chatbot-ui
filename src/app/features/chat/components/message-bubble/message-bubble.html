@@ -21,6 +21,22 @@
       }
     </div>
 
+    @if (message().agentStatus; as label) {
+      <div class="retrieval">
+        <span class="retrieval-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14">
+            <path
+              d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M16 8l3-3M5 19l3-3"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </span>
+        <span>{{ label }}</span>
+      </div>
+    }
     @if (message().retrievalStatus; as label) {
       <div class="retrieval">
         <span class="retrieval-icon" aria-hidden="true">

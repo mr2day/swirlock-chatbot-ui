@@ -48,7 +48,7 @@ export interface DoneDiagnostics {
 
 export type ChatStreamEvent =
   | {
-      type: 'turn.accepted' | 'turn.classifying' | 'turn.started';
+      type: 'turn.accepted' | 'turn.started';
       correlationId: string;
       payload: Record<string, never>;
     }
@@ -66,6 +66,25 @@ export type ChatStreamEvent =
       type: 'turn.location_required';
       correlationId: string;
       payload: { requestedAt: string; timeoutMs: number };
+    }
+  | {
+      type: 'turn.classifying';
+      correlationId: string;
+      payload: { step?: number };
+    }
+  | {
+      type: 'turn.agent';
+      correlationId: string;
+      payload: {
+        phase:
+          | 'classifying'
+          | 'command_started'
+          | 'command_completed'
+          | 'plan';
+        command?: string;
+        summary: string;
+        data?: unknown;
+      };
     }
   | {
       type: 'turn.thinking';
