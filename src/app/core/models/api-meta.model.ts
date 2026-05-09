@@ -1,6 +1,6 @@
 /**
- * Synthetic compatibility meta block for local UI state. The v4 ecosystem
- * protocol itself uses the shared WebSocket envelope.
+ * Synthetic compatibility meta block for local UI state. The v5 ecosystem
+ * protocol itself uses the shared WebSocket envelope (no meta on the wire).
  */
 export interface ApiMeta {
   requestId: string;
