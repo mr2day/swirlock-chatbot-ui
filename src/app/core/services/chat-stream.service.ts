@@ -179,7 +179,7 @@ export class ChatStreamService {
   }
 
   closeSession(_sessionId: string): void {
-    // v4 keeps one app-level socket open; switching sessions does not close it.
+    // v5 keeps one app-level socket open; switching sessions does not close it.
   }
 
   private requestResponse<TPayload>(
@@ -213,7 +213,7 @@ export class ChatStreamService {
 
     const url =
       `${this.cfg.wsBaseUrl.replace(/\/$/, '')}` +
-      `/v4/chat?token=${encodeURIComponent(this.auth.token())}`;
+      `/v5/chat?token=${encodeURIComponent(this.auth.token())}`;
     const connecting = new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(url);
       ws.addEventListener('open', () => {
@@ -399,7 +399,7 @@ export class ChatStreamService {
     return {
       requestId: uuid(),
       correlationId,
-      apiVersion: 'v4',
+      apiVersion: 'v5',
       servedAt: new Date().toISOString(),
     };
   }
