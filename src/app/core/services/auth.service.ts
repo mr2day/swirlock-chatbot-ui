@@ -78,8 +78,9 @@ export class AuthService {
     return `Bearer ${this.token()}`;
   }
 
-  async login(): Promise<void> {
-    await this.mgr.signinRedirect({ state: { returnTo: location.pathname + location.search } });
+  async login(returnTo?: string): Promise<void> {
+    const target = returnTo ?? location.pathname + location.search;
+    await this.mgr.signinRedirect({ state: { returnTo: target } });
   }
 
   async completeLogin(): Promise<{ returnTo: string }> {

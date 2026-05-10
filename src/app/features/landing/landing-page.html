@@ -1,0 +1,51 @@
+<!--
+  Placeholder landing copy — replace when product positioning is finalized.
+  Hero headline, tagline, three feature bullets, and the CTA wording are
+  all worth a deliberate pass before public launch.
+-->
+<main class="landing">
+  <section class="hero">
+    <img class="logo" [src]="persona.active().logoUrl" alt="" />
+    <h1 class="title">{{ persona.active().name }}</h1>
+    <p class="tagline">
+      Your AI companion. Ask anything — {{ persona.active().name }} streams
+      the answer, searches the web when it needs to, and remembers what you
+      talked about last time.
+    </p>
+    <div class="ctas">
+      @if (auth.isAuthenticated()) {
+        <a class="cta primary" routerLink="/chat">
+          Continue to {{ persona.active().name }} &rarr;
+        </a>
+      } @else {
+        <button class="cta primary" type="button" (click)="signIn()">
+          Sign in or create account
+        </button>
+      }
+    </div>
+  </section>
+
+  <section class="features" aria-label="What you get">
+    <article class="feature">
+      <h3>Streaming answers</h3>
+      <p>
+        Watch each thought form word-by-word, with citations from live web
+        search.
+      </p>
+    </article>
+    <article class="feature">
+      <h3>Persistent memory</h3>
+      <p>
+        Your conversations stay with you. {{ persona.active().name }}
+        remembers context across sessions.
+      </p>
+    </article>
+    <article class="feature">
+      <h3>Mobile-first</h3>
+      <p>
+        Designed for your phone. Works in any browser today, native app
+        on the roadmap.
+      </p>
+    </article>
+  </section>
+</main>

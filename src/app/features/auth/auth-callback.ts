@@ -18,10 +18,10 @@ export class AuthCallback {
   constructor() {
     this.auth
       .completeLogin()
-      .then(({ returnTo }) => this.router.navigateByUrl(returnTo || '/'))
+      .then(({ returnTo }) => this.router.navigateByUrl(returnTo || '/chat'))
       .catch((err: unknown) => {
         console.error('[auth] signin callback failed', err);
-        this.router.navigateByUrl('/');
+        this.router.navigateByUrl('/chat');
       });
   }
 }

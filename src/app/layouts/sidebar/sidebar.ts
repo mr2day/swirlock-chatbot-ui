@@ -49,9 +49,9 @@ export class Sidebar {
     try {
       await this.session.deleteSession(sessionId);
       if (this.session.sessions().length === 0) {
-        await this.router.navigate(['/']);
+        await this.router.navigate(['/chat']);
       } else if (this.session.activeId() === null) {
-        await this.router.navigate(['/']);
+        await this.router.navigate(['/chat']);
       }
     } catch {
       /* surfaced via SessionService.error */
