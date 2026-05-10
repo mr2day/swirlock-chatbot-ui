@@ -26,6 +26,8 @@ export class Composer {
   readonly streaming = input<boolean>(false);
   readonly disabled = input<boolean>(false);
   readonly personaName = input<string>('');
+  /** Hide the "Force thinking" checkbox when the model doesn't support it. */
+  readonly thinkingSupported = input<boolean>(true);
 
   readonly send = output<ComposerSendEvent>();
   readonly stop = output<void>();

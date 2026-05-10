@@ -10,6 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { ChatStreamService } from '../../core/services/chat-stream.service';
 import { SessionService } from '../../core/services/session.service';
 import { PersonaService } from '../../core/services/persona.service';
 import { Composer, type ComposerSendEvent } from './components/composer/composer';
@@ -32,7 +33,10 @@ export class ChatPage {
 
   protected readonly session = inject(SessionService);
   protected readonly persona = inject(PersonaService);
+  private readonly stream = inject(ChatStreamService);
   private readonly router = inject(Router);
+
+  protected readonly thinkingSupported = this.stream.thinkingSupported;
 
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
 

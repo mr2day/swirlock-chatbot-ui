@@ -29,6 +29,7 @@
       [streaming]="session.isStreaming()"
       [disabled]="session.isLoading()"
       [personaName]="persona.active().name"
+      [thinkingSupported]="thinkingSupported() ?? true"
       (send)="send($event)"
       (stop)="stop()"
     />
