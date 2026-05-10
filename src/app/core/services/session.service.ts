@@ -236,7 +236,10 @@ export class SessionService {
    * stop generation early — the orchestrator's `AbortController` then
    * tears the upstream Model Host stream down.
    */
-  sendStream(text: string, options: { forceThinking?: boolean } = {}): void {
+  async sendStream(
+    text: string,
+    options: { forceThinking?: boolean } = {},
+  ): Promise<void> {
     const sessionId = this._activeId();
     if (!sessionId) {
       this._error.set('No active session. Start a new chat first.');
@@ -276,11 +279,17 @@ export class SessionService {
 
     this._streaming.set(true);
 
+    const userLocation =
+      this.location.getStoredPermission() === 'granted'
+        ? (await this.location.fetchCurrentLocation()) ?? undefined
+        : undefined;
+
     this.currentStream = this.stream.openTurn({
       sessionId,
       text,
       forceThinking: options.forceThinking === true,
       includeDiagnostics: true,
+      ...(userLocation ? { userLocation } : {}),
       onEvent: (evt) => {
         switch (evt.type) {
           case 'turn.accepted':

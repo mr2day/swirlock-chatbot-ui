@@ -80,7 +80,7 @@ export class ChatPage {
         return;
       }
     }
-    this.session.sendStream(trimmed, { forceThinking: event.forceThinking });
+    void this.session.sendStream(trimmed, { forceThinking: event.forceThinking });
   }
 
   protected stop(): void {
