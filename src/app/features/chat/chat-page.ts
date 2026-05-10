@@ -45,6 +45,12 @@ export class ChatPage {
   );
 
   constructor() {
+    // Fetch the model's capability flags as soon as a chat page mounts so
+    // the composer can hide affordances the model can't honor (e.g. the
+    // "Force thinking" checkbox). Memoized in ChatStreamService — calling
+    // it on every chat-page mount is fine.
+    void this.stream.getModelInfo();
+
     // Whenever the route's sessionId changes, ask SessionService to load
     // the matching session. If the URL has no sessionId, just clear the
     // active session display.
