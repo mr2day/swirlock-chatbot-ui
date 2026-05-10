@@ -1,10 +1,11 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './core/guards/auth.guard';
+import { authGuard, guestOnlyGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
   {
     path: '',
     pathMatch: 'full',
+    canActivate: [guestOnlyGuard],
     loadComponent: () =>
       import('./features/landing/landing-page').then((m) => m.LandingPage),
   },
