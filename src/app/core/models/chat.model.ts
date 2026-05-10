@@ -29,7 +29,14 @@ export type InputPart = TextInputPart | ImageInputPart;
 export interface CreateSessionRequest {
   requestContext: RequestContext;
   participant: { userId: string; displayName?: string };
-  app: { appId: string; personaId?: string };
+  app: { appId: string };
+  /**
+   * Per-session persona variable defined by the client app. The orchestrator
+   * stores it on the session row and pipes `systemPrompt` to the LLM on
+   * every turn. Optional: a session without a persona gets no system prompt
+   * injection.
+   */
+  persona?: { name: string; systemPrompt: string };
   client?: { channel?: string; clientVersion?: string };
 }
 

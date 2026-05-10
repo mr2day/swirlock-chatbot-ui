@@ -1,13 +1,14 @@
 /**
- * A persona is *both* a UI skin and an LLM personality. The UI applies
- * `theme` as CSS custom properties on `:root` whenever the user switches
- * personas; the orchestrator receives `appId` and `personaId` on session
- * creation so it can later select the right system prompt and persona-
- * specific behavior.
+ * A persona is *both* a UI skin and an LLM personality. Both definitions
+ * live here, in the UI: `theme` controls the CSS custom properties on
+ * `:root`, and `systemPromptTemplate` is the LLM system prompt that the
+ * UI sends to the orchestrator on session creation. The orchestrator
+ * does not own any persona definition — it just stores the resolved
+ * prompt on the session and pipes it to the model.
  *
- * Today only "Gigi the Robot" exists. The architecture is built so adding
- * a new persona is one new file under `core/personas/` plus an entry in
- * `personas.registry.ts` — no other code needs to change.
+ * `systemPromptTemplate` may contain a literal `${model}` placeholder,
+ * which the UI substitutes with the LLM model id reported by the
+ * orchestrator before sending. No other interpolation is performed.
  */
 export interface PersonaTheme {
   /** App background. Match the persona's visual identity. */
@@ -37,7 +38,7 @@ export interface PersonaTheme {
 }
 
 export interface Persona {
-  /** Stable id sent to the orchestrator as `app.personaId`. */
+  /** Stable id used by the UI for theme switching and storage keys. */
   id: string;
   /** Display name surfaced everywhere ("Gigi the Robot"). */
   name: string;
@@ -45,12 +46,14 @@ export interface Persona {
   shortDescription: string;
   /** Path under `public/` for the persona's logo image. */
   logoUrl: string;
-  /**
-   * One-line greeting hint shown on the empty-state screen ("Ask me
-   * anything!"). Not sent to the LLM today; the orchestrator is the
-   * source of truth for system prompts.
-   */
+  /** One-line greeting hint shown on the empty-state screen. */
   greeting: string;
   /** UI skin applied to CSS custom properties on the document root. */
   theme: PersonaTheme;
+  /**
+   * The LLM system prompt for this persona. May contain a literal
+   * `${model}` placeholder, which the UI substitutes with the model id
+   * reported by the orchestrator before sending on session.create.
+   */
+  systemPromptTemplate: string;
 }

@@ -179,10 +179,16 @@ export class SessionService {
       throw new Error('Not signed in.');
     }
     try {
+      const persona = this.persona.active();
+      const modelId = await this.stream.getModelId();
+      const systemPrompt = persona.systemPromptTemplate.replace(
+        /\$\{model\}/g,
+        modelId,
+      );
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,
-        personaId: this.persona.active().id,
+        persona: { name: persona.name, systemPrompt },
       });
       const sessionId = res.data.sessionId;
       const summary: SessionSummary = {
