@@ -1,17 +1,29 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import type {
   ChatMessage,
   SessionSummary,
 } from '../models/chat-message.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
+import { AuthService } from './auth.service';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
 
-const SESSIONS_KEY = 'gigi.sessions';
-const ACTIVE_SESSION_KEY = 'gigi.activeSessionId';
-const LOCAL_USER_ID = 'dev-user';
+// Per-account localStorage scopes. Pre-auth (dev-token era) keys
+// `gigi.sessions` and `gigi.activeSessionId` are deleted on first boot
+// of the authenticated build so they cannot leak between identities.
+const LEGACY_SESSIONS_KEY = 'gigi.sessions';
+const LEGACY_ACTIVE_SESSION_KEY = 'gigi.activeSessionId';
+const SESSIONS_KEY_PREFIX = 'gigi.sessions.';
+const ACTIVE_SESSION_KEY_PREFIX = 'gigi.activeSessionId.';
 const LOCAL_USER_DISPLAY = 'You';
+
+try {
+  localStorage.removeItem(LEGACY_SESSIONS_KEY);
+  localStorage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
+} catch {
+  /* ignore */
+}
 
 /**
  * Maps the RAG Engine's verbose retrieval event types to short, friendly
@@ -108,9 +120,10 @@ export class SessionService {
   private readonly stream = inject(ChatStreamService);
   private readonly persona = inject(PersonaService);
   private readonly location = inject(LocationService);
+  private readonly auth = inject(AuthService);
 
-  private readonly _sessions = signal<SessionSummary[]>(this.loadSessions());
-  private readonly _activeId = signal<string | null>(this.loadActiveId());
+  private readonly _sessions = signal<SessionSummary[]>([]);
+  private readonly _activeId = signal<string | null>(null);
   private readonly _messages = signal<ChatMessage[]>([]);
   private readonly _streaming = signal<boolean>(false);
   private readonly _loading = signal<boolean>(false);
@@ -126,6 +139,32 @@ export class SessionService {
   readonly error = this._error.asReadonly();
   readonly hasActiveSession = computed(() => this._activeId() !== null);
 
+  constructor() {
+    // Reload (or clear) the local cache whenever the authenticated user
+    // changes. Without this, sessions cached for user A would still be
+    // listed in the sidebar when user B signs in.
+    effect(() => {
+      const sub = this.currentSub();
+      untracked(() => {
+        this.cancelStream();
+        if (!sub) {
+          this._sessions.set([]);
+          this._activeId.set(null);
+          this._messages.set([]);
+          return;
+        }
+        this._sessions.set(this.loadSessions(sub));
+        this._activeId.set(this.loadActiveId(sub));
+      });
+    });
+  }
+
+  private currentSub(): string | null {
+    const user = this.auth.currentUser();
+    const sub = (user?.profile as { sub?: unknown } | undefined)?.sub;
+    return typeof sub === 'string' && sub.length > 0 ? sub : null;
+  }
+
   async newSession(): Promise<string> {
     this._error.set(null);
     this._loading.set(true);
@@ -133,9 +172,15 @@ export class SessionService {
     if (previousSessionId) {
       this.stream.closeSession(previousSessionId);
     }
+    const sub = this.currentSub();
+    if (!sub) {
+      this._error.set('Not signed in.');
+      this._loading.set(false);
+      throw new Error('Not signed in.');
+    }
     try {
       const res = await this.stream.createSession({
-        userId: LOCAL_USER_ID,
+        userId: sub,
         displayName: LOCAL_USER_DISPLAY,
         personaId: this.persona.active().id,
       });
@@ -398,15 +443,18 @@ export class SessionService {
     this.persistActiveId();
   }
 
-  /** Forget local cache. Server keeps its own copy. */
+  /** Forget the current user's local cache. Server keeps its own copy. */
   clearLocalCache(): void {
     const sessionId = this._activeId();
     if (sessionId) {
       this.stream.closeSession(sessionId);
     }
+    const sub = this.currentSub();
     try {
-      localStorage.removeItem(SESSIONS_KEY);
-      localStorage.removeItem(ACTIVE_SESSION_KEY);
+      if (sub) {
+        localStorage.removeItem(SESSIONS_KEY_PREFIX + sub);
+        localStorage.removeItem(ACTIVE_SESSION_KEY_PREFIX + sub);
+      }
     } catch {
       /* ignore */
     }
@@ -615,9 +663,9 @@ export class SessionService {
     });
   }
 
-  private loadSessions(): SessionSummary[] {
+  private loadSessions(sub: string): SessionSummary[] {
     try {
-      const raw = localStorage.getItem(SESSIONS_KEY);
+      const raw = localStorage.getItem(SESSIONS_KEY_PREFIX + sub);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? (parsed as SessionSummary[]) : [];
@@ -626,27 +674,34 @@ export class SessionService {
     }
   }
 
-  private loadActiveId(): string | null {
+  private loadActiveId(sub: string): string | null {
     try {
-      return localStorage.getItem(ACTIVE_SESSION_KEY);
+      return localStorage.getItem(ACTIVE_SESSION_KEY_PREFIX + sub);
     } catch {
       return null;
     }
   }
 
   private persistSessions(): void {
+    const sub = this.currentSub();
+    if (!sub) return;
     try {
-      localStorage.setItem(SESSIONS_KEY, JSON.stringify(this._sessions()));
+      localStorage.setItem(
+        SESSIONS_KEY_PREFIX + sub,
+        JSON.stringify(this._sessions()),
+      );
     } catch {
       /* ignore */
     }
   }
 
   private persistActiveId(): void {
+    const sub = this.currentSub();
+    if (!sub) return;
     try {
       const id = this._activeId();
-      if (id) localStorage.setItem(ACTIVE_SESSION_KEY, id);
-      else localStorage.removeItem(ACTIVE_SESSION_KEY);
+      if (id) localStorage.setItem(ACTIVE_SESSION_KEY_PREFIX + sub, id);
+      else localStorage.removeItem(ACTIVE_SESSION_KEY_PREFIX + sub);
     } catch {
       /* ignore */
     }
