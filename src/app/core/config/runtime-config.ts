@@ -47,7 +47,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   appId: 'gigi-the-robot-ui',
   clientChannel: 'web',
   clientVersion: '0.1.0',
-  idpIssuer: 'http://127.0.0.1:3300/oidc',
+  idpIssuer: 'https://idpbase.swirlock.com/oidc',
   oidcClientId: 'swirlock-chatbot-ui',
   oidcRedirectUri: 'http://localhost:4200/auth/callback',
   oidcPostLogoutRedirectUri: 'http://localhost:4200/',
