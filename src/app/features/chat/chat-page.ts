@@ -10,6 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { ChatStreamService } from '../../core/services/chat-stream.service';
 import { SessionService } from '../../core/services/session.service';
 import { PersonaService } from '../../core/services/persona.service';
 import { Composer, type ComposerSendEvent } from './components/composer/composer';
@@ -32,7 +33,10 @@ export class ChatPage {
 
   protected readonly session = inject(SessionService);
   protected readonly persona = inject(PersonaService);
+  private readonly stream = inject(ChatStreamService);
   private readonly router = inject(Router);
+
+  protected readonly thinkingSupported = this.stream.thinkingSupported;
 
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
 
@@ -41,6 +45,12 @@ export class ChatPage {
   );
 
   constructor() {
+    // Fetch the model's capability flags as soon as a chat page mounts so
+    // the composer can hide affordances the model can't honor (e.g. the
+    // "Force thinking" checkbox). Memoized in ChatStreamService — calling
+    // it on every chat-page mount is fine.
+    void this.stream.getModelInfo();
+
     // Whenever the route's sessionId changes, ask SessionService to load
     // the matching session. If the URL has no sessionId, just clear the
     // active session display.
@@ -80,7 +90,7 @@ export class ChatPage {
         return;
       }
     }
-    this.session.sendStream(trimmed, { forceThinking: event.forceThinking });
+    void this.session.sendStream(trimmed, { forceThinking: event.forceThinking });
   }
 
   protected stop(): void {

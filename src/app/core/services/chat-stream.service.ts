@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
 import type {
   CreateSessionRequest,
@@ -64,11 +64,50 @@ export class ChatStreamService {
   private readonly queued: V4Envelope[] = [];
   private readonly pending = new Map<string, PendingRequest<unknown>>();
   private activeTurn: ActiveTurn | null = null;
+  private readonly _modelId = signal<string | null>(null);
+  private readonly _thinkingSupported = signal<boolean | null>(null);
+  readonly modelId = this._modelId.asReadonly();
+  readonly thinkingSupported = this._thinkingSupported.asReadonly();
+  private modelStatusInflight: Promise<{
+    modelId: string;
+    thinkingSupported: boolean;
+  }> | null = null;
+
+  /**
+   * Asks the orchestrator for the LLM model identity + capability flags.
+   * The orchestrator forwards the request to the LLM host and returns
+   * the values unchanged. Cached after the first resolution.
+   */
+  async getModelInfo(): Promise<{ modelId: string; thinkingSupported: boolean }> {
+    const cachedId = this._modelId();
+    const cachedThinking = this._thinkingSupported();
+    if (cachedId !== null && cachedThinking !== null) {
+      return { modelId: cachedId, thinkingSupported: cachedThinking };
+    }
+    if (this.modelStatusInflight) return this.modelStatusInflight;
+    this.modelStatusInflight = this.requestResponse<{
+      modelId: string;
+      thinkingSupported: boolean;
+    }>('model.status', 'model.status', uuid(), {})
+      .then((res) => {
+        this._modelId.set(res.modelId);
+        this._thinkingSupported.set(res.thinkingSupported);
+        return res;
+      })
+      .finally(() => {
+        this.modelStatusInflight = null;
+      });
+    return this.modelStatusInflight;
+  }
+
+  async getModelId(): Promise<string> {
+    return (await this.getModelInfo()).modelId;
+  }
 
   createSession(args: {
     userId: string;
     displayName?: string;
-    personaId: string;
+    persona: { name: string; systemPrompt: string };
     correlationId?: string;
   }): Promise<CreateSessionResponse> {
     const correlationId = args.correlationId ?? uuid();
@@ -84,8 +123,8 @@ export class ChatStreamService {
       },
       app: {
         appId: this.cfg.appId,
-        personaId: args.personaId,
       },
+      persona: args.persona,
       client: {
         channel: this.cfg.clientChannel,
         clientVersion: this.cfg.clientVersion,

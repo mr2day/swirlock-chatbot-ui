@@ -1,0 +1,119 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  background: var(--persona-bg);
+  color: var(--persona-text-primary);
+}
+
+.landing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 48px 24px;
+  text-align: center;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  box-sizing: border-box;
+}
+
+.hero {
+  max-width: 620px;
+  width: 100%;
+}
+
+.logo {
+  width: clamp(200px, 38vw, 360px);
+  height: clamp(200px, 38vw, 360px);
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 32px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+}
+
+.title {
+  font-size: clamp(2rem, 6vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+}
+
+.tagline {
+  font-size: 1.1rem;
+  line-height: 1.55;
+  color: var(--persona-text-secondary);
+  margin: 0 0 32px;
+}
+
+.ctas {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.cta {
+  display: inline-block;
+  padding: 13px 26px;
+  border-radius: 9999px;
+  border: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+  transition: filter 0.15s ease;
+}
+
+.cta.primary {
+  background: var(--persona-accent);
+  color: var(--persona-accent-contrast);
+}
+
+.cta.primary:hover {
+  filter: brightness(0.92);
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  width: 100%;
+  max-width: 900px;
+  margin-top: 64px;
+}
+
+.feature {
+  background: var(--persona-surface);
+  border: 1px solid var(--persona-border);
+  border-radius: 14px;
+  padding: 22px;
+  text-align: left;
+}
+
+.feature h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--persona-text-primary);
+}
+
+.feature p {
+  margin: 0;
+  color: var(--persona-text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 540px) {
+  .landing {
+    padding: 32px 18px;
+  }
+  .features {
+    margin-top: 40px;
+  }
+}
