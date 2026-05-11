@@ -34,9 +34,23 @@ app.get('/config.json', (_req, res) => {
   res.json(runtimeConfig);
 });
 
-app.use(express.static(dist, { index: false }));
+// Hashed asset filenames (main-XYZ.js etc.) can cache aggressively;
+// index.html cannot, because it's the document that pins which hashes
+// the browser fetches next. If index.html is cached, a redeploy keeps
+// serving the old bundle to existing tabs.
+app.use(
+  express.static(dist, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-store, must-revalidate');
+      }
+    },
+  }),
+);
 
 app.get('*', (_req, res) => {
+  res.set('Cache-Control', 'no-store, must-revalidate');
   res.sendFile(path.join(dist, 'index.html'));
 });
 
