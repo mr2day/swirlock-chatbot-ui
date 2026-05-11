@@ -3,6 +3,7 @@ import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { LayoutService } from '../../core/services/layout.service';
 import { PersonaService } from '../../core/services/persona.service';
 import { SessionService } from '../../core/services/session.service';
+import { AuthService } from '../../core/services/auth.service';
 import type { SessionSummary } from '../../core/models/chat-message.model';
 
 interface SessionGroup {
@@ -24,7 +25,12 @@ export class Sidebar {
   protected readonly persona = inject(PersonaService);
   protected readonly session = inject(SessionService);
   protected readonly layout = inject(LayoutService);
+  protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+
+  protected logout(): void {
+    void this.auth.logout();
+  }
 
   protected readonly groups = computed<SessionGroup[]>(() =>
     this.groupByRelativeDate(this.session.sessions()),

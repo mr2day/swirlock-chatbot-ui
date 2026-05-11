@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { LayoutService } from '../../core/services/layout.service';
 import { PersonaService } from '../../core/services/persona.service';
+import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-topbar',
@@ -11,8 +12,13 @@ import { PersonaService } from '../../core/services/persona.service';
 export class Topbar {
   protected readonly layout = inject(LayoutService);
   protected readonly persona = inject(PersonaService);
+  protected readonly auth = inject(AuthService);
 
   protected toggle(): void {
     this.layout.toggleSidebar();
+  }
+
+  protected logout(): void {
+    void this.auth.logout();
   }
 }

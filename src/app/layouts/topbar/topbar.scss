@@ -60,6 +60,21 @@
   flex: 1 1 auto;
 }
 
+.logout {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--persona-text-secondary);
+  border-radius: var(--radius-md);
+}
+
+.logout:hover {
+  background: var(--persona-surface-elevated);
+  color: var(--persona-text-primary);
+}
+
 /*
  * Topbar exists only on mobile. On desktop the sidebar is permanently
  * visible and already carries the persona identity, so the main column
