@@ -12,6 +12,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import type { ChatMessage } from '../../../../core/models/chat-message.model';
 import type { Persona } from '../../../../core/personas/persona.model';
 import { renderMarkdownSafe } from '../../../../core/markdown/markdown';
+import { ChatStreamService } from '../../../../core/services/chat-stream.service';
 
 @Component({
   selector: 'app-message-bubble',
@@ -28,6 +29,10 @@ export class MessageBubble {
   @Output() readonly denyLocation = new EventEmitter<string>();
 
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly stream = inject(ChatStreamService);
+
+  /** LLM model id (e.g. `gemma3:12b`) — shown under the persona name on assistant messages. */
+  protected readonly modelId = this.stream.modelId;
 
   protected readonly thinkingOpen = signal<boolean>(true);
 
