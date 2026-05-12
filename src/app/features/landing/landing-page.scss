@@ -13,6 +13,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* `safe center` keeps the cluster vertically centered when it fits
+     and falls back to flex-start (no clipping) when it doesn't. */
+  justify-content: safe center;
+  gap: clamp(20px, 4vh, 40px);
   padding: clamp(20px, 5vw, 48px) clamp(16px, 5vw, 24px);
   padding-top: calc(clamp(20px, 5vw, 48px) + var(--safe-top));
   padding-bottom: calc(clamp(20px, 5vw, 48px) + var(--safe-bottom));
@@ -33,16 +37,9 @@
   z-index: 10;
 }
 
-/*
- * `margin: auto 0` on the outer children turns this into a layout that
- * centers vertically when the content fits, and lets the parent scroll
- * naturally when it doesn't. On flex items, `auto` margins consume
- * remaining space — which collapses to zero once content overflows.
- */
 .hero {
   max-width: 620px;
   width: 100%;
-  margin-top: auto;
 }
 
 .features {
@@ -51,15 +48,19 @@
   gap: clamp(10px, 2vw, 16px);
   width: 100%;
   max-width: 900px;
-  margin-top: clamp(20px, 4vh, 40px);
-  margin-bottom: auto;
 }
 
+/*
+ * The logo size grows with whatever the rest of the page leaves
+ * vertically. ~360px covers the non-logo content (title, tagline,
+ * CTA, features row, page padding) at small/medium widths. The
+ * clamp prevents shrinking below 160 (legibility) or overflowing
+ * past 480 horizontally on big screens.
+ */
 .logo {
-  width: clamp(160px, 36vh, 340px);
-  height: clamp(160px, 36vh, 340px);
+  width: clamp(160px, calc(100vh - 360px), min(480px, 70vw));
+  height: clamp(160px, calc(100vh - 360px), min(480px, 70vw));
   object-fit: contain;
-  margin-bottom: clamp(12px, 2.5vh, 24px);
 }
 
 .title {
