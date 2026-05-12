@@ -153,10 +153,31 @@ export class SessionService {
           this._messages.set([]);
           return;
         }
+        // Paint immediately from the local cache so the sidebar has
+        // something to show, then fetch the canonical list from the
+        // orchestrator and replace.
         this._sessions.set(this.loadSessions(sub));
         this._activeId.set(this.loadActiveId(sub));
+        void this.refreshSessionsFromServer(sub);
       });
     });
+  }
+
+  /**
+   * Fetches the user's sessions from the orchestrator and writes them
+   * into the local store. Sessions live server-side; the
+   * localStorage copy is a cache that's wrong as soon as the user
+   * signs in on a different device.
+   */
+  private async refreshSessionsFromServer(sub: string): Promise<void> {
+    try {
+      const { sessions } = await this.stream.listSessions();
+      if (this.currentSub() !== sub) return;
+      this._sessions.set(sessions);
+      this.persistSessions();
+    } catch (err) {
+      console.warn('[session] failed to load sessions from server', err);
+    }
   }
 
   private currentSub(): string | null {

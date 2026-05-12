@@ -142,6 +142,24 @@ export class ChatStreamService {
     }));
   }
 
+  listSessions(
+    correlationId = uuid(),
+  ): Promise<{
+    sessions: {
+      sessionId: string;
+      title: string;
+      createdAt: string;
+      updatedAt: string;
+    }[];
+  }> {
+    return this.requestResponse(
+      'session.list',
+      'session.listed',
+      correlationId,
+      {},
+    );
+  }
+
   getSession(
     sessionId: string,
     correlationId = uuid(),
