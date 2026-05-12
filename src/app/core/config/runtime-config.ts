@@ -50,6 +50,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   idpIssuer: 'https://idpbase.swirlock.com/oidc',
   oidcClientId: 'swirlock-chatbot-ui',
   oidcRedirectUri: 'http://localhost:4200/auth/callback',
-  oidcPostLogoutRedirectUri: 'http://localhost:4200/',
+  oidcPostLogoutRedirectUri: 'http://localhost:4200/auth/logout-callback',
   oidcResource: 'http://127.0.0.1:3200',
 };

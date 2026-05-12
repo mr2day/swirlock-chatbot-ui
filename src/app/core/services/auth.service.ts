@@ -94,6 +94,15 @@ export class AuthService {
     await this.mgr.signoutRedirect();
   }
 
+  async completeLogout(): Promise<void> {
+    try {
+      await this.mgr.signoutRedirectCallback();
+    } catch {
+      await this.mgr.removeUser();
+    }
+    this.setUser(null);
+  }
+
   private setUser(u: User | null): void {
     this._user.set(u);
     this.isAuthenticated.set(!!u && !u.expired);

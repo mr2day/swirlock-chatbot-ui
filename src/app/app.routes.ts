@@ -15,6 +15,11 @@ export const routes: Routes = [
       import('./features/auth/auth-callback').then((m) => m.AuthCallback),
   },
   {
+    path: 'auth/logout-callback',
+    loadComponent: () =>
+      import('./features/auth/logout-callback').then((m) => m.LogoutCallback),
+  },
+  {
     path: '',
     canActivate: [authGuard],
     loadComponent: () =>
