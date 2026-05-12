@@ -48,14 +48,14 @@ export class AuthService {
   private readonly readyPromise = new Promise<void>((r) => (this.readyResolve = r));
 
   /**
-   * Native (Capacitor) and web use different IdP client registrations:
-   * the OIDC spec forbids mixing https:// redirect URIs with custom
-   * schemes under a single client. The native client carries only the
-   * `gigi://` URIs; the web client carries only https:// + localhost.
+   * One unified OIDC client (`application_type: native` on the IdP)
+   * backs both web and Capacitor shells. The IdP's redirect-uri
+   * validator accepts mixed https + custom-scheme URIs under the
+   * native app type, and we patched its interaction policy to skip
+   * the always-prompt-consent check that native would normally
+   * trigger. The only thing that differs per platform here is the
+   * redirect URI we hand to the IdP for this particular flow.
    */
-  private get clientId(): string {
-    return this.isNative() ? 'swirlock-chatbot-ui-android' : this.cfg.oidcClientId;
-  }
   private get redirectUri(): string {
     return this.isNative()
       ? 'gigi://auth/callback'
@@ -69,7 +69,7 @@ export class AuthService {
 
   private readonly mgr = new UserManager({
     authority: this.cfg.idpIssuer,
-    client_id: this.clientId,
+    client_id: this.cfg.oidcClientId,
     redirect_uri: this.redirectUri,
     post_logout_redirect_uri: this.postLogoutRedirectUri,
     response_type: 'code',
