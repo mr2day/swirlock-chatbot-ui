@@ -4,13 +4,9 @@
   all worth a deliberate pass before public launch.
 -->
 <main class="landing">
-  <div class="persona-switcher-wrap">
-    <app-persona-switcher />
-  </div>
-
   <section class="hero">
     <img class="logo" [src]="persona.active().logoUrl" alt="" />
-    <h1 class="title">{{ persona.active().name }}</h1>
+    <h1 class="title"><app-persona-switcher [asTitle]="true" /></h1>
     <p class="tagline">
       Your AI companion. Ask anything — {{ persona.active().name }} streams
       the answer, searches the web when it needs to, and remembers what you

@@ -24,6 +24,13 @@ export class PersonaSwitcher {
   /** When true, the trigger shows the short description under the name. */
   readonly showTagline = input(false);
 
+  /**
+   * When true, the trigger renders as a large title-sized persona name
+   * with a chevron and no logo — meant for the hero on the landing page
+   * where the persona name is also the page heading.
+   */
+  readonly asTitle = input(false);
+
   protected readonly open = signal(false);
 
   protected readonly others = computed(() =>

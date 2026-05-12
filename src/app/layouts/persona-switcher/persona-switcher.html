@@ -2,12 +2,15 @@
   class="trigger"
   type="button"
   (click)="toggle()"
-  [class.compact]="!showTagline()"
+  [class.compact]="!showTagline() && !asTitle()"
+  [class.as-title]="asTitle()"
   [attr.aria-expanded]="open()"
   aria-haspopup="listbox"
   [title]="'Switch persona (' + persona.active().name + ')'"
 >
-  <img class="trigger-logo" [src]="persona.active().logoUrl" alt="" />
+  @if (!asTitle()) {
+    <img class="trigger-logo" [src]="persona.active().logoUrl" alt="" />
+  }
   <div class="trigger-text">
     <div class="trigger-name">{{ persona.active().name }}</div>
     @if (showTagline()) {
@@ -17,8 +20,8 @@
   <svg
     class="trigger-chevron"
     viewBox="0 0 24 24"
-    width="16"
-    height="16"
+    [attr.width]="asTitle() ? 22 : 16"
+    [attr.height]="asTitle() ? 22 : 16"
     aria-hidden="true"
     [class.flipped]="open()"
   >

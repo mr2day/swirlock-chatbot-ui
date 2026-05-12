@@ -29,13 +29,6 @@
   box-sizing: border-box;
 }
 
-.persona-switcher-wrap {
-  position: absolute;
-  top: calc(var(--safe-top) + 12px);
-  right: clamp(12px, 4vw, 20px);
-  width: min(220px, 60vw);
-  z-index: 10;
-}
 
 .hero {
   max-width: 620px;
@@ -52,22 +45,21 @@
 
 /*
  * Logo grows with whatever vertical space the rest of the page
- * leaves. No fixed pixel ceiling — the ceiling is the viewport
- * itself (capped at 80vw so it never overflows horizontally on
- * narrow phones). The 320px subtracted budget covers title +
- * tagline + CTA + features row + page padding at medium widths.
+ * leaves, but with a modest fixed ceiling so it doesn't dominate
+ * tall desktop screens. The 380px budget covers title + tagline +
+ * CTA + features + page padding at medium widths.
  */
 .logo {
-  width: min(80vw, max(160px, calc(100vh - 320px)));
-  height: min(80vw, max(160px, calc(100vh - 320px)));
+  width: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
+  height: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
   object-fit: contain;
 }
 
 .title {
-  font-size: clamp(1.4rem, 4.5vw, 2.4rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
   margin: 0 0 clamp(6px, 1vh, 10px);
+  font-size: inherit;
+  /* The visible font sizing lives on the inline persona-switcher
+     trigger; this h1 is just a semantic wrapper. */
 }
 
 .tagline {

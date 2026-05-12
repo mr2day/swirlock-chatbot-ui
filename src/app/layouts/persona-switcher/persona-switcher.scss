@@ -28,6 +28,42 @@
   gap: var(--space-2);
 }
 
+/* Used on the landing-page hero — no logo, the persona name is itself
+   the page heading, with a chevron hinting at the dropdown. */
+.trigger.as-title {
+  width: auto;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+}
+
+.trigger.as-title:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.trigger.as-title .trigger-name {
+  font-size: clamp(1.4rem, 4.5vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.trigger.as-title .trigger-chevron {
+  color: var(--persona-text-secondary);
+}
+
+/* In as-title mode the trigger is auto-width and centered, so anchor
+   the menu by its center and give it a comfortable min-width. */
+:host:has(.trigger.as-title) .menu {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 32px));
+}
+
 .trigger-logo {
   width: 90px;
   height: 90px;
