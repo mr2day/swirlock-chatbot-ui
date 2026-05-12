@@ -55,7 +55,7 @@
   width: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
   height: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
   object-fit: contain;
-  margin-bottom: clamp(16px, 3vh, 28px);
+  margin-bottom: clamp(8px, 1.5vh, 16px);
 }
 
 /* Gigina's PNG has ~12% of semi-transparent halo around its
