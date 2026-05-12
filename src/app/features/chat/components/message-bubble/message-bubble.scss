@@ -31,13 +31,6 @@
   align-self: start;
 }
 
-/* The "You" avatar is a single letter on a transparent backdrop — give
-   it a tinted rounded square so it doesn't look orphaned. Persona
-   avatars stay backgroundless so their transparent PNGs read clean. */
-.is-user .avatar {
-  background: var(--persona-surface-elevated);
-  border-radius: var(--radius-md);
-}
 
 .avatar-img {
   width: 100%;
@@ -45,11 +38,6 @@
   object-fit: contain;
 }
 
-.avatar-initial {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--persona-text-secondary);
-}
 
 .body {
   grid-area: body;
