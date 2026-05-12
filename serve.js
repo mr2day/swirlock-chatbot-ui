@@ -38,12 +38,22 @@ app.get('/config.json', (_req, res) => {
 // index.html cannot, because it's the document that pins which hashes
 // the browser fetches next. If index.html is cached, a redeploy keeps
 // serving the old bundle to existing tabs.
+//
+// Non-hashed assets (favicon, /personas/*.png, etc.) keep the same
+// URL across deploys, so the browser + Cloudflare cache them and
+// redeploys silently serve stale content. Force revalidation with
+// `no-cache` for everything that isn't a hash-named bundle.
+const HASHED_NAME_RE = /-[A-Z0-9]{8,}\.[a-z0-9]+$/i;
 app.use(
   express.static(dist, {
     index: false,
     setHeaders: (res, filePath) => {
       if (filePath.endsWith('.html')) {
         res.setHeader('Cache-Control', 'no-store, must-revalidate');
+      } else if (HASHED_NAME_RE.test(path.basename(filePath))) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache');
       }
     },
   }),
