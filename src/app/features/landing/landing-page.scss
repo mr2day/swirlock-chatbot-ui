@@ -13,9 +13,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* `safe center` keeps the cluster vertically centered when it fits
-     and falls back to flex-start (no clipping) when it doesn't. */
-  justify-content: safe center;
+  /* Anchor the cluster at the top — the page padding handles the
+     visual breathing room above the hero so it stays close to the
+     top regardless of viewport height. */
+  justify-content: flex-start;
   gap: clamp(20px, 4vh, 40px);
   padding: clamp(20px, 5vw, 48px) clamp(16px, 5vw, 24px);
   padding-top: calc(clamp(20px, 5vw, 48px) + var(--safe-top));
@@ -58,8 +59,11 @@
 .title {
   margin: 0 0 clamp(6px, 1vh, 10px);
   font-size: inherit;
-  /* The visible font sizing lives on the inline persona-switcher
-     trigger; this h1 is just a semantic wrapper. */
+  /* h1 defaults to block and the inline persona-switcher host is
+     also block — wrap as a flex row centered horizontally so the
+     switcher trigger ends up centered under the logo. */
+  display: flex;
+  justify-content: center;
 }
 
 .tagline {
