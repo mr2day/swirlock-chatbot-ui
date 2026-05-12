@@ -25,12 +25,9 @@
   grid-area: avatar;
   width: 64px;
   height: 64px;
-  border-radius: var(--radius-md);
-  background: var(--persona-surface-elevated);
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
   align-self: start;
 }
 
