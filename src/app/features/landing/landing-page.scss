@@ -55,7 +55,7 @@
   width: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
   height: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
   object-fit: contain;
-  margin-bottom: clamp(8px, 1.5vh, 16px);
+  margin-bottom: clamp(4px, 1vh, 10px);
 }
 
 /* Gigina's PNG has ~12% of semi-transparent halo around its
@@ -67,7 +67,7 @@
 }
 
 .title {
-  margin: 0 0 clamp(14px, 2.5vh, 24px);
+  margin: 0 0 clamp(10px, 1.8vh, 16px);
   font-size: inherit;
   /* h1 defaults to block and the inline persona-switcher host is
      also block — wrap as a flex row centered horizontally so the
