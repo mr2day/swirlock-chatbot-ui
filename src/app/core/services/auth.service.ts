@@ -57,14 +57,16 @@ export class AuthService {
    * redirect URI we hand to the IdP for this particular flow.
    */
   private get redirectUri(): string {
-    return this.isNative()
-      ? 'gigi://auth/callback'
-      : this.cfg.oidcRedirectUri;
+    if (this.isNative()) return 'gigi://auth/callback';
+    // Derive from the actual origin the SPA was served from so
+    // `ng serve` (http://localhost:4200) and the production host
+    // (https://gigi-the-robot.com) both work without a rebuild. The
+    // IdP client has all matching URIs registered.
+    return `${location.origin}/auth/callback`;
   }
   private get postLogoutRedirectUri(): string {
-    return this.isNative()
-      ? 'gigi://auth/logout-callback'
-      : this.cfg.oidcPostLogoutRedirectUri;
+    if (this.isNative()) return 'gigi://auth/logout-callback';
+    return `${location.origin}/auth/logout-callback`;
   }
 
   private readonly mgr = new UserManager({
