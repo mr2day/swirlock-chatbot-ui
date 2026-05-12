@@ -1,5 +1,13 @@
-import { Injectable, inject, signal } from '@angular/core';
-import { Log, User, UserManager } from 'oidc-client-ts';
+import { Injectable, NgZone, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import {
+  Log,
+  type OidcClient,
+  type SigninRequest,
+  type SignoutRequest,
+  User,
+  UserManager,
+} from 'oidc-client-ts';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
 import { PersonaService } from './persona.service';
 
@@ -19,27 +27,52 @@ Log.setLevel(Log.WARN);
  * - `login()` redirects the browser to the IdP for sign-in/registration.
  * - `completeLogin()` is called from the /auth/callback route.
  * - `logout()` redirects to the IdP for RP-initiated logout.
+ *
+ * Native (Capacitor) shell: the same UserManager is used, but the
+ * /authorize and /session/end navigations happen in a system browser
+ * (Chrome Custom Tabs on Android) rather than the webview. When the
+ * IdP redirects to the `gigi://auth/(callback|logout-callback)`
+ * custom-scheme URL, Android routes it back to the app via an intent
+ * filter and the deep-link handler completes the flow.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly cfg = inject(RUNTIME_CONFIG);
   private readonly persona = inject(PersonaService);
+  private readonly router = inject(Router);
+  private readonly zone = inject(NgZone);
   private readonly _user = signal<User | null>(null);
   readonly currentUser = this._user.asReadonly();
   readonly isAuthenticated = signal(false);
   private readyResolve: (() => void) | null = null;
   private readonly readyPromise = new Promise<void>((r) => (this.readyResolve = r));
 
+  /**
+   * Override the configured HTTPS redirect URIs with custom-scheme URLs
+   * when running inside a Capacitor wrap. The IdP client registration
+   * carries both so the same OAuth client backs web and native.
+   */
+  private get redirectUri(): string {
+    return this.isNative()
+      ? 'gigi://auth/callback'
+      : this.cfg.oidcRedirectUri;
+  }
+  private get postLogoutRedirectUri(): string {
+    return this.isNative()
+      ? 'gigi://auth/logout-callback'
+      : this.cfg.oidcPostLogoutRedirectUri;
+  }
+
   private readonly mgr = new UserManager({
     authority: this.cfg.idpIssuer,
     client_id: this.cfg.oidcClientId,
-    redirect_uri: this.cfg.oidcRedirectUri,
-    post_logout_redirect_uri: this.cfg.oidcPostLogoutRedirectUri,
+    redirect_uri: this.redirectUri,
+    post_logout_redirect_uri: this.postLogoutRedirectUri,
     response_type: 'code',
     scope: 'openid profile offline_access',
     extraQueryParams: { resource: this.cfg.oidcResource },
     extraTokenParams: { resource: this.cfg.oidcResource },
-    automaticSilentRenew: true,
+    automaticSilentRenew: !this.isNative(),
     loadUserInfo: false,
   });
 
@@ -54,6 +87,10 @@ export class AuthService {
       this.setUser(null);
     });
 
+    if (this.isNative()) {
+      void this.bindNativeDeepLinks();
+    }
+
     void this.mgr
       .getUser()
       .then(async (u) => {
@@ -67,8 +104,13 @@ export class AuthService {
         // session cookie is still alive but oidc-client-ts has already
         // wiped our local user state (it calls removeUser() inside
         // signoutRedirect before navigating). A prompt=none redirect
-        // re-hydrates the user without any IdP UI flash.
-        if (this.consumeLogoutPending() && !location.pathname.startsWith('/auth/')) {
+        // re-hydrates the user without any IdP UI flash. Native shell
+        // skips this since silent renew can't run in a custom-tab flow.
+        if (
+          !this.isNative() &&
+          this.consumeLogoutPending() &&
+          !location.pathname.startsWith('/auth/')
+        ) {
           try {
             await this.mgr.signinRedirect({
               prompt: 'none',
@@ -86,6 +128,39 @@ export class AuthService {
         this.readyResolve?.();
         this.readyResolve = null;
       });
+  }
+
+  private isNative(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } })
+        .Capacitor?.isNativePlatform?.() === true
+    );
+  }
+
+  private async bindNativeDeepLinks(): Promise<void> {
+    const { App } = await import('@capacitor/app');
+    await App.addListener('appUrlOpen', (event) => {
+      const url = event.url || '';
+      if (!url.startsWith('gigi://auth/')) return;
+      this.zone.run(() => void this.handleNativeAuthCallback(url));
+    });
+  }
+
+  private async handleNativeAuthCallback(url: string): Promise<void> {
+    const { Browser } = await import('@capacitor/browser');
+    await Browser.close().catch(() => undefined);
+    try {
+      if (url.startsWith('gigi://auth/callback')) {
+        await this.completeLogin(url);
+        await this.router.navigateByUrl('/chat');
+      } else if (url.startsWith('gigi://auth/logout-callback')) {
+        await this.completeLogout(url);
+        await this.router.navigateByUrl('/');
+      }
+    } catch (err) {
+      console.warn('[auth] native callback failed', err);
+    }
   }
 
   private consumeLogoutPending(): boolean {
@@ -117,7 +192,11 @@ export class AuthService {
   }
 
   async login(returnTo?: string): Promise<void> {
-    const target = returnTo ?? location.pathname + location.search;
+    const target = returnTo ?? (this.isNative() ? '/chat' : location.pathname + location.search);
+    if (this.isNative()) {
+      await this.startNativeFlow('signin', { returnTo: target });
+      return;
+    }
     await this.mgr.signinRedirect({
       state: { returnTo: target },
       extraQueryParams: {
@@ -127,8 +206,8 @@ export class AuthService {
     });
   }
 
-  async completeLogin(): Promise<{ returnTo: string }> {
-    const user = await this.mgr.signinRedirectCallback();
+  async completeLogin(url?: string): Promise<{ returnTo: string }> {
+    const user = await this.mgr.signinRedirectCallback(url);
     this.setUser(user);
     const state = (user.state ?? null) as { returnTo?: string } | null;
     return { returnTo: state?.returnTo || '/' };
@@ -140,23 +219,54 @@ export class AuthService {
     } catch {
       /* sessionStorage unavailable */
     }
+    if (this.isNative()) {
+      await this.startNativeFlow('signout');
+      return;
+    }
     await this.mgr.signoutRedirect({
       extraQueryParams: { persona: this.persona.activeId() },
     });
   }
 
-  async completeLogout(): Promise<void> {
+  async completeLogout(url?: string): Promise<void> {
     try {
       sessionStorage.removeItem(LOGOUT_PENDING_KEY);
     } catch {
       /* sessionStorage unavailable */
     }
     try {
-      await this.mgr.signoutRedirectCallback();
+      await this.mgr.signoutRedirectCallback(url);
     } catch {
       await this.mgr.removeUser();
     }
     this.setUser(null);
+  }
+
+  private async startNativeFlow(
+    kind: 'signin' | 'signout',
+    options: { returnTo?: string } = {},
+  ): Promise<void> {
+    const { Browser } = await import('@capacitor/browser');
+    const extraQueryParams = {
+      ...(kind === 'signin' ? { resource: this.cfg.oidcResource } : {}),
+      persona: this.persona.activeId(),
+    };
+    // `createSigninRequest`/`createSignoutRequest` aren't exposed on
+     // UserManager; reach through to the underlying OidcClient so we
+     // can grab the IdP URL without triggering a webview navigation.
+    const client = (this.mgr as unknown as { _client: OidcClient })._client;
+    const req: SigninRequest | SignoutRequest =
+      kind === 'signin'
+        ? await client.createSigninRequest({
+            redirect_uri: this.redirectUri,
+            state: options.returnTo ? { returnTo: options.returnTo } : undefined,
+            extraQueryParams,
+          })
+        : await client.createSignoutRequest({
+            post_logout_redirect_uri: this.postLogoutRedirectUri,
+            extraQueryParams,
+          });
+    await Browser.open({ url: req.url, presentationStyle: 'popover' });
   }
 
   private setUser(u: User | null): void {

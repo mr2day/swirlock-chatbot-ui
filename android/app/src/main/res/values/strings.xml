@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Gigi the Robot</string>
+    <string name="title_activity_main">Gigi the Robot</string>
+    <string name="package_name">com.swirlock.gigi</string>
+    <string name="custom_url_scheme">com.swirlock.gigi</string>
+</resources>

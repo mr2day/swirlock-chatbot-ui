@@ -42,14 +42,23 @@ export interface RuntimeConfig {
 
 export const RUNTIME_CONFIG = new InjectionToken<RuntimeConfig>('RUNTIME_CONFIG');
 
+/**
+ * Production defaults. When the SPA is loaded from a real web server,
+ * `main.ts` overlays values from /config.json on top of these. When
+ * the SPA is loaded from a Capacitor wrap (no companion web server),
+ * /config.json doesn't exist and these values are used as-is.
+ *
+ * For local `ng serve` development, override locally by editing this
+ * file OR by adding a /config.json file under public/.
+ */
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
-  wsBaseUrl: 'ws://127.0.0.1:3200',
+  wsBaseUrl: 'wss://api.gigi-the-robot.com',
   appId: 'gigi-the-robot-ui',
   clientChannel: 'web',
   clientVersion: '0.1.0',
   idpIssuer: 'https://idpbase.swirlock.com/oidc',
   oidcClientId: 'swirlock-chatbot-ui',
-  oidcRedirectUri: 'http://localhost:4200/auth/callback',
-  oidcPostLogoutRedirectUri: 'http://localhost:4200/auth/logout-callback',
+  oidcRedirectUri: 'https://gigi-the-robot.com/auth/callback',
+  oidcPostLogoutRedirectUri: 'https://gigi-the-robot.com/auth/logout-callback',
   oidcResource: 'http://127.0.0.1:3200',
 };

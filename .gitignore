@@ -42,3 +42,16 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Local npm cache (workaround for OS file locks on the global cache)
+.npm-cache/
+
+# Capacitor: keep the platform project tracked, but skip the build
+# artifacts that Gradle / Android Studio regenerate.
+/android/app/build/
+/android/build/
+/android/.gradle/
+/android/local.properties
+/android/captures/
+/android/.idea/
+/android/app/release/
