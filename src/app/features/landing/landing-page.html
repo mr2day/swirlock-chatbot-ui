@@ -5,7 +5,12 @@
 -->
 <main class="landing">
   <section class="hero">
-    <img class="logo" [src]="persona.active().logoUrl" alt="" />
+    <img
+      class="logo"
+      [class]="'logo persona-' + persona.activeId()"
+      [src]="persona.active().logoUrl"
+      alt=""
+    />
     <h1 class="title"><app-persona-switcher [asTitle]="true" /></h1>
     <p class="tagline">
       Your AI companion. Ask anything — {{ persona.active().name }} streams

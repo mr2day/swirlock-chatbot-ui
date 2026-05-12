@@ -56,6 +56,14 @@
   object-fit: contain;
 }
 
+/* Gigina's PNG has ~12% of semi-transparent halo around its
+   character (anti-aliased edges extending the alpha bbox), so it
+   renders smaller than Gigi in the same box. Scale up just this
+   persona's image in CSS — no file edits. */
+.logo.persona-gigina-robotina {
+  transform: scale(1.14);
+}
+
 .title {
   margin: 0 0 clamp(6px, 1vh, 10px);
   font-size: inherit;

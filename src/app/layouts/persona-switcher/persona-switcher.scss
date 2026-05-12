@@ -38,7 +38,10 @@
   padding: 4px 8px;
   border: 0;
   background: transparent;
-  line-height: 1;
+  /* line-height >1 so descenders in "g"/"y" don't bleed into the
+     tagline below. The chevron stays visually centered with the
+     name's cap-height because of align-items: center. */
+  line-height: 1.2;
 }
 
 .trigger.as-title:hover {
