@@ -1,17 +1,20 @@
 :host {
   display: block;
-  min-height: 100vh;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--persona-bg);
   color: var(--persona-text-primary);
 }
 
 .landing {
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 48px 24px;
+  padding: clamp(20px, 5vw, 48px) clamp(16px, 5vw, 24px);
+  padding-top: calc(clamp(20px, 5vw, 48px) + var(--safe-top));
+  padding-bottom: calc(clamp(20px, 5vw, 48px) + var(--safe-bottom));
   text-align: center;
   font-family:
     system-ui,
@@ -21,32 +24,49 @@
   box-sizing: border-box;
 }
 
+/*
+ * `margin: auto 0` on the outer children turns this into a layout that
+ * centers vertically when the content fits, and lets the parent scroll
+ * naturally when it doesn't. On flex items, `auto` margins consume
+ * remaining space — which collapses to zero once content overflows.
+ */
 .hero {
   max-width: 620px;
   width: 100%;
+  margin-top: auto;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: clamp(12px, 3vw, 20px);
+  width: 100%;
+  max-width: 900px;
+  margin-top: clamp(28px, 6vh, 64px);
+  margin-bottom: auto;
 }
 
 .logo {
-  width: clamp(200px, 38vw, 360px);
-  height: clamp(200px, 38vw, 360px);
+  width: clamp(140px, 32vw, 320px);
+  height: clamp(140px, 32vw, 320px);
   border-radius: 50%;
   object-fit: cover;
-  margin-bottom: 32px;
+  margin-bottom: clamp(16px, 4vh, 32px);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
 }
 
 .title {
-  font-size: clamp(2rem, 6vw, 3rem);
+  font-size: clamp(1.6rem, 6vw, 3rem);
   font-weight: 700;
   letter-spacing: -0.02em;
-  margin: 0 0 12px;
+  margin: 0 0 clamp(8px, 1.5vh, 12px);
 }
 
 .tagline {
-  font-size: 1.1rem;
+  font-size: clamp(0.95rem, 2.5vw, 1.1rem);
   line-height: 1.55;
   color: var(--persona-text-secondary);
-  margin: 0 0 32px;
+  margin: 0 0 clamp(20px, 4vh, 32px);
 }
 
 .ctas {
@@ -67,6 +87,7 @@
   text-decoration: none;
   font-family: inherit;
   transition: filter 0.15s ease;
+  min-height: 44px;
 }
 
 .cta.primary {
@@ -78,20 +99,11 @@
   filter: brightness(0.92);
 }
 
-.features {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
-  width: 100%;
-  max-width: 900px;
-  margin-top: 64px;
-}
-
 .feature {
   background: var(--persona-surface);
   border: 1px solid var(--persona-border);
   border-radius: 14px;
-  padding: 22px;
+  padding: clamp(14px, 3vw, 22px);
   text-align: left;
 }
 
@@ -107,13 +119,4 @@
   color: var(--persona-text-secondary);
   font-size: 0.95rem;
   line-height: 1.55;
-}
-
-@media (max-width: 540px) {
-  .landing {
-    padding: 32px 18px;
-  }
-  .features {
-    margin-top: 40px;
-  }
 }
