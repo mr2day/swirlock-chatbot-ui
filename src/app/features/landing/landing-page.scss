@@ -52,10 +52,10 @@
  * CTA + features + page padding at medium widths.
  */
 .logo {
-  width: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
-  height: clamp(160px, calc(100vh - 380px), min(280px, 70vw));
+  width: clamp(140px, calc(100vh - 420px), min(240px, 60vw));
+  height: clamp(140px, calc(100vh - 420px), min(240px, 60vw));
   object-fit: contain;
-  margin-bottom: clamp(4px, 1vh, 10px);
+  margin-bottom: clamp(2px, 0.6vh, 6px);
 }
 
 /* Gigina's PNG has ~12% of semi-transparent halo around its
