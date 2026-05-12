@@ -8,7 +8,7 @@
    directly via grid-area. */
 .bubble {
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 52px 1fr;
   grid-template-rows: auto 1fr;
   grid-template-areas:
     "avatar author"
@@ -23,8 +23,8 @@
 
 .avatar {
   grid-area: avatar;
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
