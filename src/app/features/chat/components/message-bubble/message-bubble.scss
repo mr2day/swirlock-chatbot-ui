@@ -40,6 +40,12 @@
   object-fit: contain;
 }
 
+.avatar-initial {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--persona-text-secondary);
+}
+
 .body {
   grid-area: body;
   min-width: 0;
