@@ -48,10 +48,14 @@ export class AuthService {
   private readonly readyPromise = new Promise<void>((r) => (this.readyResolve = r));
 
   /**
-   * Override the configured HTTPS redirect URIs with custom-scheme URLs
-   * when running inside a Capacitor wrap. The IdP client registration
-   * carries both so the same OAuth client backs web and native.
+   * Native (Capacitor) and web use different IdP client registrations:
+   * the OIDC spec forbids mixing https:// redirect URIs with custom
+   * schemes under a single client. The native client carries only the
+   * `gigi://` URIs; the web client carries only https:// + localhost.
    */
+  private get clientId(): string {
+    return this.isNative() ? 'swirlock-chatbot-ui-android' : this.cfg.oidcClientId;
+  }
   private get redirectUri(): string {
     return this.isNative()
       ? 'gigi://auth/callback'
@@ -65,7 +69,7 @@ export class AuthService {
 
   private readonly mgr = new UserManager({
     authority: this.cfg.idpIssuer,
-    client_id: this.cfg.oidcClientId,
+    client_id: this.clientId,
     redirect_uri: this.redirectUri,
     post_logout_redirect_uri: this.postLogoutRedirectUri,
     response_type: 'code',
