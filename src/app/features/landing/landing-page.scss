@@ -51,15 +51,15 @@
 }
 
 /*
- * The logo size grows with whatever the rest of the page leaves
- * vertically. ~360px covers the non-logo content (title, tagline,
- * CTA, features row, page padding) at small/medium widths. The
- * clamp prevents shrinking below 160 (legibility) or overflowing
- * past 480 horizontally on big screens.
+ * Logo grows with whatever vertical space the rest of the page
+ * leaves. No fixed pixel ceiling — the ceiling is the viewport
+ * itself (capped at 80vw so it never overflows horizontally on
+ * narrow phones). The 320px subtracted budget covers title +
+ * tagline + CTA + features row + page padding at medium widths.
  */
 .logo {
-  width: clamp(160px, calc(100vh - 360px), min(480px, 70vw));
-  height: clamp(160px, calc(100vh - 360px), min(480px, 70vw));
+  width: min(80vw, max(160px, calc(100vh - 320px)));
+  height: min(80vw, max(160px, calc(100vh - 320px)));
   object-fit: contain;
 }
 
