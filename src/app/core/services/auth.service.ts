@@ -1,6 +1,9 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Log, User, UserManager } from 'oidc-client-ts';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
+import { PersonaService } from './persona.service';
+
+const LOGOUT_PENDING_KEY = 'gigi.logoutPending';
 
 Log.setLogger(console);
 Log.setLevel(Log.WARN);
@@ -20,6 +23,7 @@ Log.setLevel(Log.WARN);
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly cfg = inject(RUNTIME_CONFIG);
+  private readonly persona = inject(PersonaService);
   private readonly _user = signal<User | null>(null);
   readonly currentUser = this._user.asReadonly();
   readonly isAuthenticated = signal(false);
@@ -52,14 +56,48 @@ export class AuthService {
 
     void this.mgr
       .getUser()
-      .then((u) => {
-        if (u && !u.expired) this.setUser(u);
-        else this.setUser(null);
+      .then(async (u) => {
+        if (u && !u.expired) {
+          this.consumeLogoutPending();
+          this.setUser(u);
+          return;
+        }
+        this.setUser(null);
+        // If the user just cancelled an RP-initiated logout, the IdP
+        // session cookie is still alive but oidc-client-ts has already
+        // wiped our local user state (it calls removeUser() inside
+        // signoutRedirect before navigating). A prompt=none redirect
+        // re-hydrates the user without any IdP UI flash.
+        if (this.consumeLogoutPending() && !location.pathname.startsWith('/auth/')) {
+          try {
+            await this.mgr.signinRedirect({
+              prompt: 'none',
+              extraQueryParams: {
+                resource: this.cfg.oidcResource,
+                persona: this.persona.activeId(),
+              },
+            });
+          } catch (err) {
+            console.warn('[auth] silent re-login after cancelled logout failed', err);
+          }
+        }
       })
       .finally(() => {
         this.readyResolve?.();
         this.readyResolve = null;
       });
+  }
+
+  private consumeLogoutPending(): boolean {
+    try {
+      if (sessionStorage.getItem(LOGOUT_PENDING_KEY) === '1') {
+        sessionStorage.removeItem(LOGOUT_PENDING_KEY);
+        return true;
+      }
+    } catch {
+      /* sessionStorage unavailable */
+    }
+    return false;
   }
 
   waitReady(): Promise<void> {
@@ -80,7 +118,13 @@ export class AuthService {
 
   async login(returnTo?: string): Promise<void> {
     const target = returnTo ?? location.pathname + location.search;
-    await this.mgr.signinRedirect({ state: { returnTo: target } });
+    await this.mgr.signinRedirect({
+      state: { returnTo: target },
+      extraQueryParams: {
+        resource: this.cfg.oidcResource,
+        persona: this.persona.activeId(),
+      },
+    });
   }
 
   async completeLogin(): Promise<{ returnTo: string }> {
@@ -91,10 +135,22 @@ export class AuthService {
   }
 
   async logout(): Promise<void> {
-    await this.mgr.signoutRedirect();
+    try {
+      sessionStorage.setItem(LOGOUT_PENDING_KEY, '1');
+    } catch {
+      /* sessionStorage unavailable */
+    }
+    await this.mgr.signoutRedirect({
+      extraQueryParams: { persona: this.persona.activeId() },
+    });
   }
 
   async completeLogout(): Promise<void> {
+    try {
+      sessionStorage.removeItem(LOGOUT_PENDING_KEY);
+    } catch {
+      /* sessionStorage unavailable */
+    }
     try {
       await this.mgr.signoutRedirectCallback();
     } catch {
