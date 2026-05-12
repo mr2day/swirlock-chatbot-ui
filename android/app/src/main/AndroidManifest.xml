@@ -49,4 +49,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Geolocation: the webview's navigator.geolocation API delegates
+         to the system location provider, which requires these. Without
+         them, the SPA's LocationService permission prompt silently
+         fails on Android and the orchestrator never sees a userLocation. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 </manifest>
