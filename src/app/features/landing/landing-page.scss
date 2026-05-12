@@ -3,7 +3,9 @@
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background: var(--persona-bg);
+  /* Match the persona logos' own background so the hero art blends
+     into the page instead of meeting a hard rectangular edge. */
+  background: #1f1f20;
   color: var(--persona-text-primary);
 }
 
@@ -47,12 +49,10 @@
 }
 
 .logo {
-  width: clamp(140px, 32vw, 320px);
-  height: clamp(140px, 32vw, 320px);
-  border-radius: 50%;
-  object-fit: cover;
+  width: clamp(160px, 38vw, 360px);
+  height: clamp(160px, 38vw, 360px);
+  object-fit: contain;
   margin-bottom: clamp(16px, 4vh, 32px);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
 }
 
 .title {
@@ -100,7 +100,7 @@
 }
 
 .feature {
-  background: var(--persona-surface);
+  background: var(--persona-surface-elevated);
   border: 1px solid var(--persona-border);
   border-radius: 14px;
   padding: clamp(14px, 3vw, 22px);
