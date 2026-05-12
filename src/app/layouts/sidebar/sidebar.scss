@@ -13,39 +13,6 @@
   gap: var(--space-3);
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.brand-logo {
-  width: 90px;
-  height: 90px;
-  border-radius: var(--radius-md);
-  object-fit: cover;
-  background: var(--persona-surface-elevated);
-  flex: 0 0 auto;
-}
-
-.brand-text {
-  min-width: 0;
-}
-
-.brand-name {
-  font-weight: 600;
-  font-size: var(--text-base);
-  color: var(--persona-text-primary);
-}
-
-.brand-tagline {
-  font-size: var(--text-xs);
-  color: var(--persona-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .new-chat {
   display: flex;
   align-items: center;

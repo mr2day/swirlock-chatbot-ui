@@ -1,0 +1,46 @@
+<button
+  class="trigger"
+  type="button"
+  (click)="toggle()"
+  [class.compact]="!showTagline()"
+  [attr.aria-expanded]="open()"
+  aria-haspopup="listbox"
+  [title]="'Switch persona (' + persona.active().name + ')'"
+>
+  <img class="trigger-logo" [src]="persona.active().logoUrl" alt="" />
+  <div class="trigger-text">
+    <div class="trigger-name">{{ persona.active().name }}</div>
+    @if (showTagline()) {
+      <div class="trigger-tagline">{{ persona.active().shortDescription }}</div>
+    }
+  </div>
+  <svg
+    class="trigger-chevron"
+    viewBox="0 0 24 24"
+    width="16"
+    height="16"
+    aria-hidden="true"
+    [class.flipped]="open()"
+  >
+    <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+</button>
+
+@if (open()) {
+  <ul class="menu" role="listbox">
+    @for (p of others(); track p.id) {
+      <li>
+        <button class="menu-item" type="button" role="option" (click)="select(p.id)">
+          <img class="menu-logo" [src]="p.logoUrl" alt="" />
+          <div class="menu-text">
+            <div class="menu-name">{{ p.name }}</div>
+            <div class="menu-tagline">{{ p.shortDescription }}</div>
+          </div>
+        </button>
+      </li>
+    }
+    @if (others().length === 0) {
+      <li class="menu-empty">No other personas available.</li>
+    }
+  </ul>
+}

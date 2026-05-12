@@ -1,11 +1,6 @@
 <div class="sidebar">
-  <div class="brand">
-    <img class="brand-logo" [src]="persona.active().logoUrl" alt="" />
-    <div class="brand-text">
-      <div class="brand-name">{{ persona.active().name }}</div>
-      <div class="brand-tagline">{{ persona.active().shortDescription }}</div>
-    </div>
-  </div>
+  <app-persona-switcher [showTagline]="true" />
+
 
   <button class="new-chat" type="button" (click)="newChat()" [disabled]="session.isLoading()">
     <span class="plus" aria-hidden="true">+</span>

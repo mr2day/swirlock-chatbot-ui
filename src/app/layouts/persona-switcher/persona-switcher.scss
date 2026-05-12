@@ -1,0 +1,148 @@
+:host {
+  display: block;
+  position: relative;
+}
+
+.trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.trigger:hover {
+  background: var(--persona-surface-elevated);
+  border-color: var(--persona-border);
+}
+
+.trigger.compact {
+  padding: var(--space-1) var(--space-2);
+  gap: var(--space-2);
+}
+
+.trigger-logo {
+  width: 90px;
+  height: 90px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  background: var(--persona-surface-elevated);
+  flex: 0 0 auto;
+}
+
+.trigger.compact .trigger-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+}
+
+.trigger-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.trigger-name {
+  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--persona-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trigger-tagline {
+  font-size: var(--text-xs);
+  color: var(--persona-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trigger-chevron {
+  flex: 0 0 auto;
+  color: var(--persona-text-muted);
+  transition: transform 120ms ease;
+}
+
+.trigger-chevron.flipped {
+  transform: rotate(180deg);
+}
+
+.menu {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--persona-surface);
+  border: 1px solid var(--persona-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  z-index: 50;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.menu-item:hover {
+  background: var(--persona-surface-elevated);
+}
+
+.menu-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--persona-surface-elevated);
+  flex: 0 0 auto;
+}
+
+.menu-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.menu-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--persona-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-tagline {
+  font-size: var(--text-xs);
+  color: var(--persona-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-empty {
+  padding: var(--space-2);
+  color: var(--persona-text-muted);
+  font-size: var(--text-sm);
+}

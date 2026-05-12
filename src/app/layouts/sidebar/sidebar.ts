@@ -1,9 +1,9 @@
 import { Component, computed, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { LayoutService } from '../../core/services/layout.service';
-import { PersonaService } from '../../core/services/persona.service';
 import { SessionService } from '../../core/services/session.service';
 import { AuthService } from '../../core/services/auth.service';
+import { PersonaSwitcher } from '../persona-switcher/persona-switcher';
 import type { SessionSummary } from '../../core/models/chat-message.model';
 
 interface SessionGroup {
@@ -17,12 +17,11 @@ const THIRTY_DAYS = 30 * ONE_DAY;
 
 @Component({
   selector: 'app-sidebar',
-  imports: [RouterLink, RouterLinkActive],
+  imports: [RouterLink, RouterLinkActive, PersonaSwitcher],
   templateUrl: './sidebar.html',
   styleUrl: './sidebar.scss',
 })
 export class Sidebar {
-  protected readonly persona = inject(PersonaService);
   protected readonly session = inject(SessionService);
   protected readonly layout = inject(LayoutService);
   protected readonly auth = inject(AuthService);

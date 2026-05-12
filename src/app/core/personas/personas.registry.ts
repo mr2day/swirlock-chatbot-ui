@@ -1,5 +1,6 @@
 import type { Persona } from './persona.model';
 import { GIGI_THE_ROBOT } from './gigi-the-robot.persona';
+import { GIGINA_ROBOTINA } from './gigina-robotina.persona';
 
 /**
  * The catalog of personas the UI knows about. Add new personas by
@@ -7,11 +8,10 @@ import { GIGI_THE_ROBOT } from './gigi-the-robot.persona';
  * persona switcher in the topbar is driven entirely by this list.
  *
  * Future planned entries (placeholders, not yet implemented):
- *   - Gigina Robotina
  *   - The English Teacher
  *   - The Italian Actor
  */
-export const PERSONAS: readonly Persona[] = [GIGI_THE_ROBOT];
+export const PERSONAS: readonly Persona[] = [GIGI_THE_ROBOT, GIGINA_ROBOTINA];
 
 export const DEFAULT_PERSONA_ID = GIGI_THE_ROBOT.id;
 
