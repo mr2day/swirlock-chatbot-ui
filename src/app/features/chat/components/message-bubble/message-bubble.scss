@@ -2,32 +2,36 @@
   display: block;
 }
 
+/* Desktop layout: avatar in a left column, body in a right column.
+   The .bubble-head wrapper uses `display: contents` here so its
+   children (avatar + author) participate in the parent grid
+   directly via grid-area. */
 .bubble {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "avatar author"
+    "avatar body";
+  gap: 0 var(--space-3);
   padding: var(--space-3) 0;
 }
 
 .bubble-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
+  display: contents;
 }
 
-/* Avatar size scales with viewport: small enough on phones to leave
-   the persona/user name a comfortable inline neighbour, but stays
-   detailed (~56px) on desktop where the persona art is part of the
-   chat aesthetic. */
 .avatar {
-  width: clamp(40px, 8vw, 56px);
-  height: clamp(40px, 8vw, 56px);
-  flex: 0 0 auto;
+  grid-area: avatar;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  background: var(--persona-surface-elevated);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  align-self: start;
 }
 
 .avatar-img {
@@ -37,20 +41,48 @@
 }
 
 .body {
+  grid-area: body;
   min-width: 0;
 }
 
+/* Mobile: ditch the grid column so the body can use the full width.
+   Avatar and author stack horizontally in the header, content
+   flows below. Avatar stays at 64px per request. */
+@media (max-width: 767px) {
+  .bubble {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .bubble-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+}
+
 .author {
-  flex: 1 1 auto;
+  grid-area: author;
+  align-self: end;
   min-width: 0;
   font-size: var(--text-xs);
   font-weight: 600;
   color: var(--persona-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  margin-bottom: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+@media (max-width: 767px) {
+  .author {
+    flex: 1 1 auto;
+    align-self: auto;
+    margin-bottom: 0;
+  }
 }
 
 .image-grid {
