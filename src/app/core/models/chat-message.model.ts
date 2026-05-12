@@ -26,6 +26,16 @@ export interface LocationPromptState {
   resolution?: 'granted' | 'denied' | 'unavailable';
 }
 
+export interface ChatMessageImage {
+  /** Stable id within the message; used as @for track. */
+  id: string;
+  /** Full data URL (`data:image/png;base64,...`) used for both wire
+   *  transmission and the thumbnail src. */
+  dataUrl: string;
+  mimeType: string;
+  name?: string;
+}
+
 export interface ChatMessage {
   /** Stable client-side id; replaced with `messageId` after persistence. */
   localId: string;
@@ -36,6 +46,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   /** Visible message content. Streams in chunk-by-chunk for assistant. */
   content: string;
+  /** Inline images the user attached to this turn (paste, drag-drop, file picker). */
+  images?: ChatMessageImage[];
   /** Accumulated `thinking` text streamed by the upstream Model Host. */
   thinking: string;
   /** Lifecycle for spinner/stop button decisions. */

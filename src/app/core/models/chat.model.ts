@@ -19,6 +19,9 @@ export interface ImageInputPart {
   type: 'image';
   imageId?: string;
   imageUrl?: string;
+  /** Full data URL (`data:image/png;base64,...`) for inline image uploads
+   *  from paste / drag-drop / file picker in the composer. */
+  imageBase64?: string;
   mimeType?: string;
 }
 

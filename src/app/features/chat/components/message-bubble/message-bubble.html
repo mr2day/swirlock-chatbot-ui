@@ -121,6 +121,14 @@
       }
     }
 
+    @if (message().images?.length) {
+      <div class="image-grid">
+        @for (img of message().images!; track img.id) {
+          <img class="message-image" [src]="img.dataUrl" [alt]="img.name ?? ''" />
+        }
+      </div>
+    }
+
     @if (message().content.length > 0) {
       <div class="content prose" [innerHTML]="contentHtml()"></div>
     } @else if (isStreamingActive() && !hasThinking()) {

@@ -81,7 +81,8 @@ export class ChatPage {
 
   protected async send(event: ComposerSendEvent): Promise<void> {
     const trimmed = event.text.trim();
-    if (!trimmed) return;
+    const hasImages = event.images.length > 0;
+    if (!trimmed && !hasImages) return;
     if (!this.session.activeId()) {
       try {
         const id = await this.session.newSession();
@@ -90,7 +91,10 @@ export class ChatPage {
         return;
       }
     }
-    void this.session.sendStream(trimmed, { forceThinking: event.forceThinking });
+    void this.session.sendStream(trimmed, {
+      forceThinking: event.forceThinking,
+      images: event.images,
+    });
   }
 
   protected stop(): void {

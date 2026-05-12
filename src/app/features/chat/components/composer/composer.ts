@@ -10,9 +10,39 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+export interface ComposerImage {
+  id: string;
+  dataUrl: string;
+  mimeType: string;
+  name: string;
+}
+
 export interface ComposerSendEvent {
   text: string;
   forceThinking: boolean;
+  images: ComposerImage[];
+}
+
+let attachmentCounter = 0;
+function nextAttachmentId(): string {
+  attachmentCounter += 1;
+  return `att-${Date.now().toString(36)}-${attachmentCounter}`;
+}
+
+function fileToImage(file: File): Promise<ComposerImage> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve({
+        id: nextAttachmentId(),
+        dataUrl: String(reader.result),
+        mimeType: file.type || 'image/png',
+        name: file.name || 'image',
+      });
+    };
+    reader.onerror = () => reject(new Error('Could not read image.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 @Component({
@@ -34,8 +64,11 @@ export class Composer {
 
   protected readonly text = signal<string>('');
   protected readonly forceThinking = signal<boolean>(false);
+  protected readonly attachments = signal<ComposerImage[]>([]);
+  protected readonly dragOver = signal<boolean>(false);
 
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('textarea');
+  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
 
   constructor() {
     // Auto-resize the textarea up to a comfortable mobile-friendly cap.
@@ -57,12 +90,84 @@ export class Composer {
     }
   }
 
+  protected onPaste(event: ClipboardEvent): void {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length === 0) return;
+    // Keep the typed text untouched — only swallow the paste when it's
+    // actually images, so plain-text pastes still drop into the textarea.
+    event.preventDefault();
+    void this.addImageFiles(files);
+  }
+
+  protected onDragOver(event: DragEvent): void {
+    if (!event.dataTransfer) return;
+    const hasFiles = Array.from(event.dataTransfer.items).some(
+      (i) => i.kind === 'file',
+    );
+    if (!hasFiles) return;
+    event.preventDefault();
+    this.dragOver.set(true);
+  }
+
+  protected onDragLeave(event: DragEvent): void {
+    // Ignore inner-element transitions; only clear when leaving the composer.
+    const related = event.relatedTarget as Node | null;
+    const host = (event.currentTarget as HTMLElement) ?? null;
+    if (host && related && host.contains(related)) return;
+    this.dragOver.set(false);
+  }
+
+  protected onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(false);
+    const files = event.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    void this.addImageFiles(Array.from(files));
+  }
+
+  protected onAttachClick(): void {
+    this.fileInput()?.nativeElement.click();
+  }
+
+  protected onFileInputChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      void this.addImageFiles(Array.from(input.files));
+    }
+    input.value = '';
+  }
+
+  protected removeAttachment(id: string): void {
+    this.attachments.update((list) => list.filter((a) => a.id !== id));
+  }
+
+  private async addImageFiles(files: File[]): Promise<void> {
+    const images = files.filter((f) => f.type.startsWith('image/'));
+    if (images.length === 0) return;
+    const loaded = await Promise.all(images.map(fileToImage));
+    this.attachments.update((list) => [...list, ...loaded]);
+  }
+
   protected submit(): void {
     if (this.streaming() || this.disabled()) return;
     const value = this.text().trim();
-    if (!value) return;
-    this.send.emit({ text: value, forceThinking: this.forceThinking() });
+    const images = this.attachments();
+    if (!value && images.length === 0) return;
+    this.send.emit({
+      text: value,
+      forceThinking: this.forceThinking(),
+      images,
+    });
     this.text.set('');
+    this.attachments.set([]);
     queueMicrotask(() => this.textarea()?.nativeElement?.focus());
   }
 

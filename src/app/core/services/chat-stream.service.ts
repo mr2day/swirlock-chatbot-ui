@@ -179,6 +179,7 @@ export class ChatStreamService {
     thinking?: boolean;
     forceThinking?: boolean;
     includeDiagnostics?: boolean;
+    images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
     onEvent: (event: ChatStreamEvent) => void;
     onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
@@ -373,8 +374,20 @@ export class ChatStreamService {
     thinking?: boolean;
     forceThinking?: boolean;
     includeDiagnostics?: boolean;
+    images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
   }): SubmitTurnRequest {
+    const parts: SubmitTurnRequest['message']['parts'] = [];
+    if (args.text.length > 0) {
+      parts.push({ type: 'text', text: args.text });
+    }
+    for (const img of args.images ?? []) {
+      parts.push({
+        type: 'image',
+        imageBase64: img.dataUrl,
+        mimeType: img.mimeType,
+      });
+    }
     return {
       requestContext: {
         callerService: this.cfg.appId,
@@ -383,7 +396,7 @@ export class ChatStreamService {
       },
       clientTurnId: uuid(),
       message: {
-        parts: [{ type: 'text', text: args.text }],
+        parts,
         occurredAt: new Date().toISOString(),
       },
       ...(args.userLocation ? { userLocation: args.userLocation } : {}),

@@ -289,7 +289,10 @@ export class SessionService {
    */
   async sendStream(
     text: string,
-    options: { forceThinking?: boolean } = {},
+    options: {
+      forceThinking?: boolean;
+      images?: { id: string; dataUrl: string; mimeType: string; name: string }[];
+    } = {},
   ): Promise<void> {
     const sessionId = this._activeId();
     if (!sessionId) {
@@ -299,6 +302,7 @@ export class SessionService {
     if (this._streaming()) return;
     this._error.set(null);
 
+    const images = options.images ?? [];
     const now = new Date().toISOString();
     const userMsg: ChatMessage = {
       localId: uuid(),
@@ -307,6 +311,16 @@ export class SessionService {
       thinking: '',
       status: 'done',
       createdAt: now,
+      ...(images.length > 0
+        ? {
+            images: images.map((i) => ({
+              id: i.id,
+              dataUrl: i.dataUrl,
+              mimeType: i.mimeType,
+              name: i.name,
+            })),
+          }
+        : {}),
     };
     const assistantMsg: ChatMessage = {
       localId: uuid(),
@@ -340,6 +354,7 @@ export class SessionService {
       text,
       forceThinking: options.forceThinking === true,
       includeDiagnostics: true,
+      ...(images.length > 0 ? { images } : {}),
       ...(userLocation ? { userLocation } : {}),
       onEvent: (evt) => {
         switch (evt.type) {
