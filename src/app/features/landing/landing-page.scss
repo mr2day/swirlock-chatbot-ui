@@ -48,32 +48,32 @@
 .features {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: clamp(12px, 3vw, 20px);
+  gap: clamp(10px, 2vw, 16px);
   width: 100%;
   max-width: 900px;
-  margin-top: clamp(28px, 6vh, 64px);
+  margin-top: clamp(20px, 4vh, 40px);
   margin-bottom: auto;
 }
 
 .logo {
-  width: clamp(220px, 56vw, 480px);
-  height: clamp(220px, 56vw, 480px);
+  width: clamp(120px, 24vh, 220px);
+  height: clamp(120px, 24vh, 220px);
   object-fit: contain;
-  margin-bottom: clamp(16px, 4vh, 32px);
+  margin-bottom: clamp(12px, 2.5vh, 24px);
 }
 
 .title {
-  font-size: clamp(1.6rem, 6vw, 3rem);
+  font-size: clamp(1.4rem, 4.5vw, 2.4rem);
   font-weight: 700;
   letter-spacing: -0.02em;
-  margin: 0 0 clamp(8px, 1.5vh, 12px);
+  margin: 0 0 clamp(6px, 1vh, 10px);
 }
 
 .tagline {
-  font-size: clamp(0.95rem, 2.5vw, 1.1rem);
-  line-height: 1.55;
+  font-size: clamp(0.9rem, 2vw, 1.05rem);
+  line-height: 1.5;
   color: var(--persona-text-secondary);
-  margin: 0 0 clamp(20px, 4vh, 32px);
+  margin: 0 0 clamp(16px, 3vh, 24px);
 }
 
 .ctas {
