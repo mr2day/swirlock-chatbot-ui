@@ -130,8 +130,9 @@
   border: 1px solid transparent;
 }
 
-.btn-attach:hover:not(:disabled) {
-  color: var(--persona-text-primary);
+.btn-attach:hover:not(:disabled),
+.btn-attach:focus-visible:not(:disabled) {
+  color: var(--persona-accent);
   background: var(--persona-surface);
 }
 
