@@ -67,7 +67,7 @@
 }
 
 .title {
-  margin: 0 0 clamp(6px, 1vh, 10px);
+  margin: 0 0 clamp(14px, 2.5vh, 24px);
   font-size: inherit;
   /* h1 defaults to block and the inline persona-switcher host is
      also block — wrap as a flex row centered horizontally so the
