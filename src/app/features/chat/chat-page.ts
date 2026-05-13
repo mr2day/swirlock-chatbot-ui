@@ -130,14 +130,24 @@ export class ChatPage {
       });
     });
 
-    // Continuous autoscroll while the stream is running and the user
-    // isn't touching the page. Reads `userInteracting` via untracked
-    // so this effect only fires on message changes, not on the
-    // user-interaction transitions (those are handled below).
-    // `behavior: auto` (instant) — combined with the host's
-    // `overflow-anchor: auto` CSS, the visual is smooth without any
-    // animation queueing.
+    // Single autoscroll effect. Tracks the last message's
+    // content/status, the message-count delta, and userInteracting.
+    // Rules:
+    //   - while userInteracting → never scroll
+    //   - new message added (countChanged) → always scroll instantly
+    //     (covers session load + new turn)
+    //   - mid-stream + within HOT_ZONE_PX of the bottom → scroll
+    //     instantly (continuous follow)
+    //   - mid-stream + outside hot zone → don't scroll (the user is
+    //     reading older content; leave them alone)
+    //   - userInteracting just flipped true→false (release) inside
+    //     the hot zone → scroll smoothly with the browser's default
+    //     ease-in-out, and lock out instant scrolls for 500ms so the
+    //     animation can actually play before the next stream chunk
+    //     yanks it
     let prevMessageCount = 0;
+    let wasInteracting = false;
+    let smoothLockoutUntil = 0;
     effect(() => {
       const list = this.session.messages();
       const count = list.length;
@@ -145,42 +155,52 @@ export class ChatPage {
       void last?.content;
       void last?.thinking;
       void last?.status;
+      const interacting = this.userInteracting();
       const countChanged = count !== prevMessageCount;
       prevMessageCount = count;
-      if (untracked(() => this.userInteracting())) return;
-      if (!this.session.isStreaming() && !countChanged) return;
-      const sentinel = this.scrollSentinel()?.nativeElement;
-      if (!sentinel) return;
-      sentinel.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' });
-    });
-
-    // Release-snap. Fires only on the userInteracting true→false
-    // transition. Two extra gates:
-    //   • streaming must still be active — otherwise the user has
-    //     deliberately scrolled to read finished content and we
-    //     shouldn't yank them
-    //   • the viewport must be within HOT_ZONE_PX of the bottom —
-    //     i.e. they're reading near the live tail, not scrolled far
-    //     up reading old material
-    // When both pass, scroll smoothly so the user perceives the
-    // page easing back to the latest content (ease-in-out via the
-    // browser's default smooth-scroll curve).
-    let wasInteracting = false;
-    effect(() => {
-      const interacting = this.userInteracting();
       const justReleased = wasInteracting && !interacting;
       wasInteracting = interacting;
-      if (!justReleased) return;
-      if (!this.session.isStreaming()) return;
+
+      if (interacting) return;
+
       const host = this.scrollHost()?.nativeElement;
       const sentinel = this.scrollSentinel()?.nativeElement;
       if (!host || !sentinel) return;
-      const distance = host.scrollHeight - host.scrollTop - host.clientHeight;
+
+      if (countChanged) {
+        sentinel.scrollIntoView({
+          block: 'end',
+          inline: 'nearest',
+          behavior: 'auto',
+        });
+        return;
+      }
+
+      if (!this.session.isStreaming()) return;
+
+      const distance =
+        host.scrollHeight - host.scrollTop - host.clientHeight;
       if (distance > ChatPage.HOT_ZONE_PX) return;
+
+      if (justReleased) {
+        smoothLockoutUntil = performance.now() + 500;
+        sentinel.scrollIntoView({
+          block: 'end',
+          inline: 'nearest',
+          behavior: 'smooth',
+        });
+        return;
+      }
+
+      // Stream chunk. If a smooth release-snap is in flight, skip so
+      // the animation has time to ease in/out without being yanked
+      // by an instant scroll. Subsequent chunks resume as soon as
+      // the lockout expires.
+      if (performance.now() < smoothLockoutUntil) return;
       sentinel.scrollIntoView({
         block: 'end',
         inline: 'nearest',
-        behavior: 'smooth',
+        behavior: 'auto',
       });
     });
   }
