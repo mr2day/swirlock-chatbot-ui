@@ -73,10 +73,21 @@ export class Composer {
   constructor() {
     // Auto-resize the textarea up to a comfortable mobile-friendly cap.
     effect(() => {
-      void this.text();
+      const text = this.text();
       const el = this.textarea()?.nativeElement;
       if (!el) return;
+      // Empty textarea: drop the inline height entirely so the CSS
+      // `min-height` controls. Mobile webviews can be stingy about
+      // recomputing `scrollHeight` after a value reset, so the
+      // explicit clear is more reliable than auto + scrollHeight.
+      if (text.length === 0) {
+        el.style.height = '';
+        return;
+      }
       el.style.height = 'auto';
+      // Force a synchronous layout pass between the reset and the
+      // scrollHeight read — needed on Android webview.
+      void el.offsetHeight;
       const max = 200; // ~10 lines
       el.style.height = Math.min(el.scrollHeight, max) + 'px';
     });
@@ -168,17 +179,10 @@ export class Composer {
     });
     this.text.set('');
     this.attachments.set([]);
-    // Force the textarea back to its single-line baseline. The
-    // auto-grow effect can read scrollHeight before [ngModel] clears
-    // the DOM value (zoneless change-detection ordering), which
-    // would leave the box at its previously expanded height. Drop
-    // the inline height override so the CSS min-height takes over.
-    queueMicrotask(() => {
-      const el = this.textarea()?.nativeElement;
-      if (!el) return;
-      el.style.height = 'auto';
-      el.focus();
-    });
+    // Schedule a focus after the autosize effect has settled. The
+    // effect itself handles the collapse-to-min-height when text
+    // becomes empty, so we just need to put the cursor back.
+    queueMicrotask(() => this.textarea()?.nativeElement?.focus());
   }
 
   protected onStop(): void {

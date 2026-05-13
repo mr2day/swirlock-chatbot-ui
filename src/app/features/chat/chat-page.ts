@@ -79,21 +79,35 @@ export class ChatPage {
       }
     });
 
-    // Track whether the user is sitting near the bottom of the
-    // scroll area. The autoscroll effect respects this flag so a
-    // user reading earlier content isn't yanked back by every chunk.
+    // Anchor management. The autoscroll fires on every streamed token
+    // and writes scrollTop=scrollHeight; the resulting `scroll` event
+    // is indistinguishable from a user scroll, so we can't use scroll
+    // events alone to decide whether the user is grabbing — we'd
+    // always lose the race. Listen for user *input* gestures
+    // (wheel / touchmove) instead. Those releases stick until the
+    // user themselves scrolls back to the bottom (or hits the
+    // floating Jump-to-Latest button).
     effect((onCleanup) => {
       const host = this.scrollHost()?.nativeElement;
       if (!host) return;
-      const update = () => {
+      const release = () => {
+        if (this.anchored()) this.anchored.set(false);
+      };
+      const onScroll = () => {
         const distance =
           host.scrollHeight - host.scrollTop - host.clientHeight;
-        this.anchored.set(distance < STICK_TO_BOTTOM_PX);
+        if (distance < STICK_TO_BOTTOM_PX && !this.anchored()) {
+          this.anchored.set(true);
+        }
       };
-      // Initialise so a brand-new chat (empty / one message) is anchored.
-      update();
-      host.addEventListener('scroll', update, { passive: true });
-      onCleanup(() => host.removeEventListener('scroll', update));
+      host.addEventListener('wheel', release, { passive: true });
+      host.addEventListener('touchmove', release, { passive: true });
+      host.addEventListener('scroll', onScroll, { passive: true });
+      onCleanup(() => {
+        host.removeEventListener('wheel', release);
+        host.removeEventListener('touchmove', release);
+        host.removeEventListener('scroll', onScroll);
+      });
     });
 
     // Auto-scroll to bottom on new chunks — but only if the user is
