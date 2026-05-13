@@ -67,6 +67,13 @@ export class ChatPage {
    *  shouldn't yank them anywhere. */
   private static readonly HOT_ZONE_PX = 300;
 
+  /** Duration of the ease-in-out animation on the release-snap. */
+  private static readonly EASE_DURATION_MS = 400;
+
+  /** Pending rAF id for the release-snap animation, so we can cancel
+   *  if the user touches the page again before it finishes. */
+  private easeRafId: number | null = null;
+
   constructor() {
     // Fetch the model's capability flags as soon as a chat page mounts so
     // the composer can hide affordances the model can't honor (e.g. the
@@ -99,6 +106,12 @@ export class ChatPage {
         if (this.releaseTimer) {
           clearTimeout(this.releaseTimer);
           this.releaseTimer = null;
+        }
+        // Cancel any in-flight release-snap animation so the user
+        // can scroll freely without fighting it.
+        if (this.easeRafId != null) {
+          cancelAnimationFrame(this.easeRafId);
+          this.easeRafId = null;
         }
         this.userInteracting.set(true);
       };
@@ -183,19 +196,15 @@ export class ChatPage {
       if (distance > ChatPage.HOT_ZONE_PX) return;
 
       if (justReleased) {
-        smoothLockoutUntil = performance.now() + 500;
-        sentinel.scrollIntoView({
-          block: 'end',
-          inline: 'nearest',
-          behavior: 'smooth',
-        });
+        smoothLockoutUntil = performance.now() + ChatPage.EASE_DURATION_MS;
+        this.easeScrollToBottom(host);
         return;
       }
 
-      // Stream chunk. If a smooth release-snap is in flight, skip so
-      // the animation has time to ease in/out without being yanked
-      // by an instant scroll. Subsequent chunks resume as soon as
-      // the lockout expires.
+      // Stream chunk. If the ease-in-out release-snap animation is
+      // still running, skip — we don't want an instant scrollTop
+      // write to break the easing. Subsequent chunks pick up as
+      // soon as the lockout expires.
       if (performance.now() < smoothLockoutUntil) return;
       sentinel.scrollIntoView({
         block: 'end',
@@ -203,6 +212,41 @@ export class ChatPage {
         behavior: 'auto',
       });
     });
+  }
+
+  /**
+   * Hand-rolled rAF ease-in-out animation from the current scrollTop
+   * to the bottom of the scroll container. We do this instead of
+   * `scrollIntoView({behavior:'smooth'})` because the native smooth
+   * is implementation-defined: in some browsers and in some
+   * scroll-container configurations it falls back to instant.
+   * Cancels any animation already in flight.
+   */
+  private easeScrollToBottom(host: HTMLElement): void {
+    if (this.easeRafId != null) {
+      cancelAnimationFrame(this.easeRafId);
+      this.easeRafId = null;
+    }
+    const start = host.scrollTop;
+    const target = host.scrollHeight - host.clientHeight;
+    const change = target - start;
+    if (Math.abs(change) < 1) return;
+    const startTime = performance.now();
+    const duration = ChatPage.EASE_DURATION_MS;
+    // Classic cubic ease-in-out: slow start, fast middle, slow end.
+    const ease = (t: number): number =>
+      t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const step = (now: number): void => {
+      const elapsed = now - startTime;
+      if (elapsed >= duration) {
+        host.scrollTop = target;
+        this.easeRafId = null;
+        return;
+      }
+      host.scrollTop = start + change * ease(elapsed / duration);
+      this.easeRafId = requestAnimationFrame(step);
+    };
+    this.easeRafId = requestAnimationFrame(step);
   }
 
 
