@@ -65,7 +65,7 @@ export class ChatPage {
    *  this close to the bottom — i.e. they're reading near the live
    *  tail. If they're farther up reading older content, releasing
    *  shouldn't yank them anywhere. */
-  private static readonly HOT_ZONE_PX = 300;
+  private static readonly HOT_ZONE_PX = 2000;
 
   /** Duration of the ease-in-out animation on the release-snap. */
   private static readonly EASE_DURATION_MS = 400;
