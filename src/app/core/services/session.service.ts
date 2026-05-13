@@ -32,13 +32,11 @@ try {
  */
 /**
  * Generic per-event-type labels. Provider-specific live.* events also fall
- * through {@link buildRetrievalLabel} so e.g. Wikipedia and Exa show
+ * through {@link buildRetrievalLabel} so each provider can show
  * distinct copy.
  */
 const RETRIEVAL_LABELS: Record<string, string | null> = {
   'retrieval.started': 'Starting retrieval…',
-  'utility_llm.retrieval_support.started': 'Planning the search…',
-  'utility_llm.retrieval_support.completed': 'Search plan ready',
   'query.normalized': 'Refining the query…',
   'embedding.query.started': 'Generating query embedding…',
   'embedding.query.completed': 'Query embedding ready',
@@ -49,8 +47,6 @@ const RETRIEVAL_LABELS: Record<string, string | null> = {
   'live.search.completed': 'Web search done',
   'live.extract.started': 'Reading sources…',
   'live.extract.completed': 'Sources read',
-  'utility_llm.extraction_summaries.started': 'Summarizing sources…',
-  'utility_llm.extraction_summaries.completed': 'Summaries ready',
   'evidence.chunk': null,
   'retrieval.completed': 'Retrieval complete',
   'retrieval.failed': 'Retrieval failed',
@@ -58,7 +54,6 @@ const RETRIEVAL_LABELS: Record<string, string | null> = {
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   exa: 'the web (Exa)',
-  wikipedia: 'Wikipedia',
 };
 
 function buildRetrievalLabel(
