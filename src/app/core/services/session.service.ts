@@ -51,8 +51,6 @@ const RETRIEVAL_LABELS: Record<string, string | null> = {
   'live.extract.completed': 'Sources read',
   'utility_llm.extraction_summaries.started': 'Summarizing sources…',
   'utility_llm.extraction_summaries.completed': 'Summaries ready',
-  'utility_llm.document_retention.started': 'Deciding what to keep…',
-  'utility_llm.document_retention.completed': 'Decided what to keep',
   'evidence.chunk': null,
   'retrieval.completed': 'Retrieval complete',
   'retrieval.failed': 'Retrieval failed',
