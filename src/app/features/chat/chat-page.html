@@ -10,6 +10,11 @@
             (denyLocation)="onDenyLocation($event)"
           />
         }
+        <!-- Bottom sentinel. An IntersectionObserver in chat-page.ts
+             watches this element to know whether the user's viewport
+             is anchored at the latest message — much more reliable
+             than racing scroll events against autoscroll writes. -->
+        <div #scrollSentinel class="scroll-sentinel" aria-hidden="true"></div>
       </div>
     } @else {
       <div class="empty-greeting">

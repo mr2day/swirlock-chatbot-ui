@@ -10,8 +10,6 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-
-const STICK_TO_BOTTOM_PX = 80;
 import { Router } from '@angular/router';
 import { ChatStreamService } from '../../core/services/chat-stream.service';
 import { SessionService } from '../../core/services/session.service';
@@ -42,6 +40,7 @@ export class ChatPage {
   protected readonly thinkingSupported = this.stream.thinkingSupported;
 
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
+  private readonly scrollSentinel = viewChild<ElementRef<HTMLElement>>('scrollSentinel');
 
   protected readonly hasMessages = computed(
     () => this.session.messages().length > 0,
@@ -79,41 +78,39 @@ export class ChatPage {
       }
     });
 
-    // Anchor management. The autoscroll fires on every streamed token
-    // and writes scrollTop=scrollHeight; the resulting `scroll` event
-    // is indistinguishable from a user scroll, so we can't use scroll
-    // events alone to decide whether the user is grabbing — we'd
-    // always lose the race. Listen for user *input* gestures
-    // (wheel / touchmove) instead. Those releases stick until the
-    // user themselves scrolls back to the bottom (or hits the
-    // floating Jump-to-Latest button).
+    // Anchor management via IntersectionObserver. The sentinel sits
+    // at the bottom of the message list; if the user has scrolled
+    // it out of view, `anchored` flips to false and autoscroll
+    // disengages. When the user scrolls (or the autoscroll lands)
+    // the sentinel back into view, `anchored` flips to true and
+    // autoscroll re-engages on the next chunk. Critically, the
+    // observer doesn't care about scroll *events* — it just reports
+    // whether the sentinel is visible — so it never races with the
+    // autoscroll's own scrollTop writes the way an event listener
+    // would. This is the same primitive ChatGPT/Claude use.
     effect((onCleanup) => {
       const host = this.scrollHost()?.nativeElement;
-      if (!host) return;
-      const release = () => {
-        if (this.anchored()) this.anchored.set(false);
-      };
-      const onScroll = () => {
-        const distance =
-          host.scrollHeight - host.scrollTop - host.clientHeight;
-        if (distance < STICK_TO_BOTTOM_PX && !this.anchored()) {
-          this.anchored.set(true);
-        }
-      };
-      host.addEventListener('wheel', release, { passive: true });
-      host.addEventListener('touchmove', release, { passive: true });
-      host.addEventListener('scroll', onScroll, { passive: true });
-      onCleanup(() => {
-        host.removeEventListener('wheel', release);
-        host.removeEventListener('touchmove', release);
-        host.removeEventListener('scroll', onScroll);
-      });
+      const sentinel = this.scrollSentinel()?.nativeElement;
+      if (!host || !sentinel) return;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            this.anchored.set(e.isIntersecting);
+          }
+        },
+        { root: host, threshold: 0 },
+      );
+      observer.observe(sentinel);
+      onCleanup(() => observer.disconnect());
     });
 
-    // Auto-scroll to bottom on new chunks — but only if the user is
-    // currently anchored at the bottom. Scrolling is scheduled with
-    // rAF so we coalesce multiple chunks per frame and let the
-    // browser paint between writes.
+    // When new content streams in and the user is anchored, scroll
+    // the sentinel into view. `scrollIntoView` is a single browser-
+    // optimised call (no manual scrollTop arithmetic, no rAF write
+    // queue), and `overflow-anchor: auto` on the host means content
+    // added at the bottom doesn't shift the viewport even between
+    // our explicit writes — so the result reads as one continuous,
+    // smooth stream rather than a frame-by-frame yank.
     effect(() => {
       const list = this.session.messages();
       const last = list[list.length - 1];
@@ -121,21 +118,19 @@ export class ChatPage {
       void last?.thinking;
       void last?.status;
       if (!this.anchored()) return;
-      const host = this.scrollHost()?.nativeElement;
-      if (!host) return;
-      requestAnimationFrame(() => {
-        host.scrollTop = host.scrollHeight;
-      });
+      const sentinel = this.scrollSentinel()?.nativeElement;
+      if (!sentinel) return;
+      sentinel.scrollIntoView({ block: 'end', inline: 'nearest' });
     });
   }
 
-  /** "Jump to latest" floating button handler — snap to bottom and
-   *  re-anchor so subsequent chunks auto-scroll again. */
+  /** "Jump to latest" floating button handler — snap to bottom; the
+   *  IntersectionObserver will re-anchor automatically once the
+   *  sentinel intersects again. */
   protected jumpToLatest(): void {
-    const host = this.scrollHost()?.nativeElement;
-    if (!host) return;
-    host.scrollTop = host.scrollHeight;
-    this.anchored.set(true);
+    const sentinel = this.scrollSentinel()?.nativeElement;
+    if (!sentinel) return;
+    sentinel.scrollIntoView({ block: 'end', inline: 'nearest' });
   }
 
   protected async send(event: ComposerSendEvent): Promise<void> {

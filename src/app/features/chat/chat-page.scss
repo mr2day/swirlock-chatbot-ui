@@ -17,16 +17,24 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  /* `auto` (the default) is the right choice for our autoscroll-on-
-     every-chunk loop. `smooth` queues animations per write and the
-     queue can never catch up with a fast stream, which produces a
-     visibly lagging viewport. */
   scroll-behavior: auto;
-  /* Hint the compositor so streaming token paints don't stutter on
-     long conversations. */
-  contain: layout paint;
+  /* Native browser scroll-anchoring: when content is added/removed
+     above or below the viewport, the browser pins the user's view
+     so they don't see the page jump. Combined with the
+     IntersectionObserver sentinel at the bottom of the messages
+     list, this is the whole "stoppable smooth scroll" trick. */
+  overflow-anchor: auto;
   display: flex;
   flex-direction: column;
+}
+
+/* A zero-height element that scroll-anchors the bottom of the
+   message list. The IntersectionObserver in chat-page.ts watches it
+   to decide whether the user is anchored. */
+.scroll-sentinel {
+  width: 100%;
+  height: 1px;
+  flex: 0 0 auto;
 }
 
 .jump-to-latest {

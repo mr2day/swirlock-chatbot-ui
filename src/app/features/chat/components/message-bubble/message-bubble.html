@@ -131,7 +131,7 @@
       </div>
     }
 
-    @if (renderedContent().length > 0) {
+    @if (message().content.length > 0) {
       <div class="content prose" [innerHTML]="contentHtml()"></div>
     } @else if (isStreamingActive() && !hasThinking()) {
       <div class="typing" aria-hidden="true">
