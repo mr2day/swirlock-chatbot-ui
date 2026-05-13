@@ -6,9 +6,12 @@ import {
   effect,
   inject,
   input,
+  signal,
   untracked,
   viewChild,
 } from '@angular/core';
+
+const STICK_TO_BOTTOM_PX = 80;
 import { Router } from '@angular/router';
 import { ChatStreamService } from '../../core/services/chat-stream.service';
 import { SessionService } from '../../core/services/session.service';
@@ -44,6 +47,19 @@ export class ChatPage {
     () => this.session.messages().length > 0,
   );
 
+  /**
+   * True while the user's viewport is within STICK_TO_BOTTOM_PX of the
+   * scroll container's bottom. While anchored, new tokens auto-scroll
+   * the view; once the user scrolls up the anchor releases and we
+   * leave them where they are.
+   */
+  protected readonly anchored = signal<boolean>(true);
+  /** Show the floating "↓ jump to latest" button while the stream is
+   *  producing tokens and the user has scrolled away from the bottom. */
+  protected readonly showJumpToLatest = computed(
+    () => !this.anchored() && this.session.isStreaming(),
+  );
+
   constructor() {
     // Fetch the model's capability flags as soon as a chat page mounts so
     // the composer can hide affordances the model can't honor (e.g. the
@@ -63,20 +79,49 @@ export class ChatPage {
       }
     });
 
-    // Auto-scroll the message list to the bottom whenever messages change
-    // or the assistant stream appends a chunk.
+    // Track whether the user is sitting near the bottom of the
+    // scroll area. The autoscroll effect respects this flag so a
+    // user reading earlier content isn't yanked back by every chunk.
+    effect((onCleanup) => {
+      const host = this.scrollHost()?.nativeElement;
+      if (!host) return;
+      const update = () => {
+        const distance =
+          host.scrollHeight - host.scrollTop - host.clientHeight;
+        this.anchored.set(distance < STICK_TO_BOTTOM_PX);
+      };
+      // Initialise so a brand-new chat (empty / one message) is anchored.
+      update();
+      host.addEventListener('scroll', update, { passive: true });
+      onCleanup(() => host.removeEventListener('scroll', update));
+    });
+
+    // Auto-scroll to bottom on new chunks — but only if the user is
+    // currently anchored at the bottom. Scrolling is scheduled with
+    // rAF so we coalesce multiple chunks per frame and let the
+    // browser paint between writes.
     effect(() => {
       const list = this.session.messages();
       const last = list[list.length - 1];
       void last?.content;
       void last?.thinking;
       void last?.status;
+      if (!this.anchored()) return;
       const host = this.scrollHost()?.nativeElement;
       if (!host) return;
-      queueMicrotask(() => {
+      requestAnimationFrame(() => {
         host.scrollTop = host.scrollHeight;
       });
     });
+  }
+
+  /** "Jump to latest" floating button handler — snap to bottom and
+   *  re-anchor so subsequent chunks auto-scroll again. */
+  protected jumpToLatest(): void {
+    const host = this.scrollHost()?.nativeElement;
+    if (!host) return;
+    host.scrollTop = host.scrollHeight;
+    this.anchored.set(true);
   }
 
   protected async send(event: ComposerSendEvent): Promise<void> {

@@ -6,6 +6,7 @@
 }
 
 .chat-page {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -16,9 +17,44 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  scroll-behavior: smooth;
+  /* `auto` (the default) is the right choice for our autoscroll-on-
+     every-chunk loop. `smooth` queues animations per write and the
+     queue can never catch up with a fast stream, which produces a
+     visibly lagging viewport. */
+  scroll-behavior: auto;
+  /* Hint the compositor so streaming token paints don't stutter on
+     long conversations. */
+  contain: layout paint;
   display: flex;
   flex-direction: column;
+}
+
+.jump-to-latest {
+  position: absolute;
+  right: 16px;
+  bottom: calc(96px + var(--safe-bottom));
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--persona-surface-elevated);
+  border: 1px solid var(--persona-border);
+  color: var(--persona-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  z-index: 5;
+  cursor: pointer;
+  transition: border-color 100ms ease, color 100ms ease, transform 100ms ease;
+}
+
+.jump-to-latest:hover {
+  border-color: var(--persona-accent);
+  color: var(--persona-accent);
+}
+
+.jump-to-latest:active {
+  transform: scale(0.96);
 }
 
 .messages-inner {
