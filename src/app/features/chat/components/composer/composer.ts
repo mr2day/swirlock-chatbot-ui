@@ -168,7 +168,17 @@ export class Composer {
     });
     this.text.set('');
     this.attachments.set([]);
-    queueMicrotask(() => this.textarea()?.nativeElement?.focus());
+    // Force the textarea back to its single-line baseline. The
+    // auto-grow effect can read scrollHeight before [ngModel] clears
+    // the DOM value (zoneless change-detection ordering), which
+    // would leave the box at its previously expanded height. Drop
+    // the inline height override so the CSS min-height takes over.
+    queueMicrotask(() => {
+      const el = this.textarea()?.nativeElement;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.focus();
+    });
   }
 
   protected onStop(): void {
