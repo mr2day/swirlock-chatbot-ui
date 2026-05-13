@@ -49,12 +49,23 @@ export class ChatPage {
   /**
    * Flips true while the user is actively touching/clicking/wheeling
    * inside the scroll area. While true, the autoscroll effect leaves
-   * the scroll position alone — the user can grab the page and read.
-   * The moment they let go, the effect re-runs and resumes
-   * autoscrolling if there's still streaming content to follow.
+   * the scroll position alone. Transitions back to false 500ms after
+   * the last input event (USER_RELEASE_DELAY_MS), giving the user a
+   * comfortable grace window before the page starts moving on them
+   * again.
    */
   protected readonly userInteracting = signal<boolean>(false);
-  private wheelEndTimer: ReturnType<typeof setTimeout> | null = null;
+  private releaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** How long after the last input event before we treat the user as
+   *  "done" and resume autoscroll. */
+  private static readonly USER_RELEASE_DELAY_MS = 500;
+
+  /** Smooth release-snap is only applied when the user's viewport is
+   *  this close to the bottom — i.e. they're reading near the live
+   *  tail. If they're farther up reading older content, releasing
+   *  shouldn't yank them anywhere. */
+  private static readonly HOT_ZONE_PX = 300;
 
   constructor() {
     // Fetch the model's capability flags as soon as a chat page mounts so
@@ -76,51 +87,56 @@ export class ChatPage {
     });
 
     // Track user *input* directly. Any pointer-down or wheel inside
-    // the scroll area = "user is interacting"; pointer release =
-    // not interacting. Wheel has no natural release, so debounce
-    // it 250ms after the last wheel event. We deliberately don't
-    // look at scroll position or scroll events — those race with
-    // our own autoscroll writes and we lose either way.
+    // the scroll area sets `userInteracting=true`. The release path
+    // (pointerup, pointercancel, pointerleave, or 500ms after the
+    // last wheel) sets it back to false — but with a half-second
+    // grace delay so the page doesn't snap back the instant the user
+    // lifts their finger.
     effect((onCleanup) => {
       const host = this.scrollHost()?.nativeElement;
       if (!host) return;
-      const start = () => this.userInteracting.set(true);
-      const end = () => this.userInteracting.set(false);
-      const onWheel = () => {
+      const begin = () => {
+        if (this.releaseTimer) {
+          clearTimeout(this.releaseTimer);
+          this.releaseTimer = null;
+        }
         this.userInteracting.set(true);
-        if (this.wheelEndTimer) clearTimeout(this.wheelEndTimer);
-        this.wheelEndTimer = setTimeout(() => {
-          this.userInteracting.set(false);
-          this.wheelEndTimer = null;
-        }, 250);
       };
-      host.addEventListener('pointerdown', start, { passive: true });
-      host.addEventListener('pointerup', end, { passive: true });
-      host.addEventListener('pointercancel', end, { passive: true });
-      host.addEventListener('pointerleave', end, { passive: true });
+      const scheduleEnd = () => {
+        if (this.releaseTimer) clearTimeout(this.releaseTimer);
+        this.releaseTimer = setTimeout(() => {
+          this.userInteracting.set(false);
+          this.releaseTimer = null;
+        }, ChatPage.USER_RELEASE_DELAY_MS);
+      };
+      const onWheel = () => {
+        begin();
+        // Each wheel event resets the timer; "wheel ended" =
+        // USER_RELEASE_DELAY_MS without further wheel events.
+        scheduleEnd();
+      };
+      host.addEventListener('pointerdown', begin, { passive: true });
+      host.addEventListener('pointerup', scheduleEnd, { passive: true });
+      host.addEventListener('pointercancel', scheduleEnd, { passive: true });
+      host.addEventListener('pointerleave', scheduleEnd, { passive: true });
       host.addEventListener('wheel', onWheel, { passive: true });
       onCleanup(() => {
-        host.removeEventListener('pointerdown', start);
-        host.removeEventListener('pointerup', end);
-        host.removeEventListener('pointercancel', end);
-        host.removeEventListener('pointerleave', end);
+        host.removeEventListener('pointerdown', begin);
+        host.removeEventListener('pointerup', scheduleEnd);
+        host.removeEventListener('pointercancel', scheduleEnd);
+        host.removeEventListener('pointerleave', scheduleEnd);
         host.removeEventListener('wheel', onWheel);
-        if (this.wheelEndTimer) clearTimeout(this.wheelEndTimer);
+        if (this.releaseTimer) clearTimeout(this.releaseTimer);
       });
     });
 
-    // Autoscroll. Re-runs on every message-content change AND on
-    // every userInteracting transition, so:
-    //   - mid-stream + not interacting → scroll to latest token
-    //   - mid-stream + interacting → skip; user is reading
-    //   - user releases mid-stream → effect re-runs because
-    //     userInteracting changed → snap back to bottom and
-    //     resume autoscroll on the next chunk
-    //   - new session loaded / new turn started → countChanged
-    //     triggers a one-time scroll-to-bottom even outside streaming
-    //   - streaming over + user scrolls up → effect re-runs but
-    //     both gates fail (not streaming, no new message), so we
-    //     leave them alone
+    // Continuous autoscroll while the stream is running and the user
+    // isn't touching the page. Reads `userInteracting` via untracked
+    // so this effect only fires on message changes, not on the
+    // user-interaction transitions (those are handled below).
+    // `behavior: auto` (instant) — combined with the host's
+    // `overflow-anchor: auto` CSS, the visual is smooth without any
+    // animation queueing.
     let prevMessageCount = 0;
     effect(() => {
       const list = this.session.messages();
@@ -131,11 +147,41 @@ export class ChatPage {
       void last?.status;
       const countChanged = count !== prevMessageCount;
       prevMessageCount = count;
-      if (this.userInteracting()) return;
+      if (untracked(() => this.userInteracting())) return;
       if (!this.session.isStreaming() && !countChanged) return;
       const sentinel = this.scrollSentinel()?.nativeElement;
       if (!sentinel) return;
-      sentinel.scrollIntoView({ block: 'end', inline: 'nearest' });
+      sentinel.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' });
+    });
+
+    // Release-snap. Fires only on the userInteracting true→false
+    // transition. Two extra gates:
+    //   • streaming must still be active — otherwise the user has
+    //     deliberately scrolled to read finished content and we
+    //     shouldn't yank them
+    //   • the viewport must be within HOT_ZONE_PX of the bottom —
+    //     i.e. they're reading near the live tail, not scrolled far
+    //     up reading old material
+    // When both pass, scroll smoothly so the user perceives the
+    // page easing back to the latest content (ease-in-out via the
+    // browser's default smooth-scroll curve).
+    let wasInteracting = false;
+    effect(() => {
+      const interacting = this.userInteracting();
+      const justReleased = wasInteracting && !interacting;
+      wasInteracting = interacting;
+      if (!justReleased) return;
+      if (!this.session.isStreaming()) return;
+      const host = this.scrollHost()?.nativeElement;
+      const sentinel = this.scrollSentinel()?.nativeElement;
+      if (!host || !sentinel) return;
+      const distance = host.scrollHeight - host.scrollTop - host.clientHeight;
+      if (distance > ChatPage.HOT_ZONE_PX) return;
+      sentinel.scrollIntoView({
+        block: 'end',
+        inline: 'nearest',
+        behavior: 'smooth',
+      });
     });
   }
 
