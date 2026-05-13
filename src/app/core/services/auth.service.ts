@@ -78,7 +78,12 @@ export class AuthService {
     scope: 'openid profile offline_access',
     extraQueryParams: { resource: this.cfg.oidcResource },
     extraTokenParams: { resource: this.cfg.oidcResource },
-    automaticSilentRenew: !this.isNative(),
+    // Silent renew works on both web and native. On web it uses a
+    // hidden iframe to /authorize; on native (where iframes can't
+    // reliably reach the IdP) oidc-client-ts automatically uses the
+    // refresh_token grant against /token instead, since we have
+    // offline_access in scope.
+    automaticSilentRenew: true,
     loadUserInfo: false,
   });
 
@@ -104,6 +109,24 @@ export class AuthService {
           this.consumeLogoutPending();
           this.setUser(u);
           return;
+        }
+        // Persisted user has an expired access token but might still
+        // have a valid refresh token (we issue 1-year refresh tokens
+        // and rotate on each use). Try to silently refresh before
+        // declaring the user logged out — otherwise reopening the app
+        // after an hour shows the landing page even though we have
+        // everything we need to renew.
+        if (u?.refresh_token) {
+          try {
+            const renewed = await this.mgr.signinSilent();
+            if (renewed) {
+              this.consumeLogoutPending();
+              this.setUser(renewed);
+              return;
+            }
+          } catch (err) {
+            console.warn('[auth] silent renew on boot failed', err);
+          }
         }
         this.setUser(null);
         // If the user just cancelled an RP-initiated logout, the IdP
