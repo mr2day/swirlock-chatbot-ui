@@ -37,34 +37,6 @@
   flex: 0 0 auto;
 }
 
-.jump-to-latest {
-  position: absolute;
-  right: 16px;
-  bottom: calc(96px + var(--safe-bottom));
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  background: var(--persona-surface-elevated);
-  border: 1px solid var(--persona-border);
-  color: var(--persona-text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
-  z-index: 5;
-  cursor: pointer;
-  transition: border-color 100ms ease, color 100ms ease, transform 100ms ease;
-}
-
-.jump-to-latest:hover {
-  border-color: var(--persona-accent);
-  color: var(--persona-accent);
-}
-
-.jump-to-latest:active {
-  transform: scale(0.96);
-}
-
 .messages-inner {
   max-width: 760px;
   margin: 0 auto;

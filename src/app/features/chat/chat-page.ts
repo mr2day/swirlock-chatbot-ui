@@ -47,17 +47,14 @@ export class ChatPage {
   );
 
   /**
-   * True while the user's viewport is within STICK_TO_BOTTOM_PX of the
-   * scroll container's bottom. While anchored, new tokens auto-scroll
-   * the view; once the user scrolls up the anchor releases and we
-   * leave them where they are.
+   * Flips true while the user is actively touching/clicking/wheeling
+   * inside the scroll area. While true, the autoscroll effect leaves
+   * the scroll position alone — the user can grab the page and read.
+   * The moment they let go, the effect re-runs and resumes
+   * autoscrolling if there's still streaming content to follow.
    */
-  protected readonly anchored = signal<boolean>(true);
-  /** Show the floating "↓ jump to latest" button while the stream is
-   *  producing tokens and the user has scrolled away from the bottom. */
-  protected readonly showJumpToLatest = computed(
-    () => !this.anchored() && this.session.isStreaming(),
-  );
+  protected readonly userInteracting = signal<boolean>(false);
+  private wheelEndTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     // Fetch the model's capability flags as soon as a chat page mounts so
@@ -78,60 +75,70 @@ export class ChatPage {
       }
     });
 
-    // Anchor management via IntersectionObserver. The sentinel sits
-    // at the bottom of the message list; if the user has scrolled
-    // it out of view, `anchored` flips to false and autoscroll
-    // disengages. When the user scrolls (or the autoscroll lands)
-    // the sentinel back into view, `anchored` flips to true and
-    // autoscroll re-engages on the next chunk. Critically, the
-    // observer doesn't care about scroll *events* — it just reports
-    // whether the sentinel is visible — so it never races with the
-    // autoscroll's own scrollTop writes the way an event listener
-    // would. This is the same primitive ChatGPT/Claude use.
+    // Track user *input* directly. Any pointer-down or wheel inside
+    // the scroll area = "user is interacting"; pointer release =
+    // not interacting. Wheel has no natural release, so debounce
+    // it 250ms after the last wheel event. We deliberately don't
+    // look at scroll position or scroll events — those race with
+    // our own autoscroll writes and we lose either way.
     effect((onCleanup) => {
       const host = this.scrollHost()?.nativeElement;
-      const sentinel = this.scrollSentinel()?.nativeElement;
-      if (!host || !sentinel) return;
-      const observer = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) {
-            this.anchored.set(e.isIntersecting);
-          }
-        },
-        { root: host, threshold: 0 },
-      );
-      observer.observe(sentinel);
-      onCleanup(() => observer.disconnect());
+      if (!host) return;
+      const start = () => this.userInteracting.set(true);
+      const end = () => this.userInteracting.set(false);
+      const onWheel = () => {
+        this.userInteracting.set(true);
+        if (this.wheelEndTimer) clearTimeout(this.wheelEndTimer);
+        this.wheelEndTimer = setTimeout(() => {
+          this.userInteracting.set(false);
+          this.wheelEndTimer = null;
+        }, 250);
+      };
+      host.addEventListener('pointerdown', start, { passive: true });
+      host.addEventListener('pointerup', end, { passive: true });
+      host.addEventListener('pointercancel', end, { passive: true });
+      host.addEventListener('pointerleave', end, { passive: true });
+      host.addEventListener('wheel', onWheel, { passive: true });
+      onCleanup(() => {
+        host.removeEventListener('pointerdown', start);
+        host.removeEventListener('pointerup', end);
+        host.removeEventListener('pointercancel', end);
+        host.removeEventListener('pointerleave', end);
+        host.removeEventListener('wheel', onWheel);
+        if (this.wheelEndTimer) clearTimeout(this.wheelEndTimer);
+      });
     });
 
-    // When new content streams in and the user is anchored, scroll
-    // the sentinel into view. `scrollIntoView` is a single browser-
-    // optimised call (no manual scrollTop arithmetic, no rAF write
-    // queue), and `overflow-anchor: auto` on the host means content
-    // added at the bottom doesn't shift the viewport even between
-    // our explicit writes — so the result reads as one continuous,
-    // smooth stream rather than a frame-by-frame yank.
+    // Autoscroll. Re-runs on every message-content change AND on
+    // every userInteracting transition, so:
+    //   - mid-stream + not interacting → scroll to latest token
+    //   - mid-stream + interacting → skip; user is reading
+    //   - user releases mid-stream → effect re-runs because
+    //     userInteracting changed → snap back to bottom and
+    //     resume autoscroll on the next chunk
+    //   - new session loaded / new turn started → countChanged
+    //     triggers a one-time scroll-to-bottom even outside streaming
+    //   - streaming over + user scrolls up → effect re-runs but
+    //     both gates fail (not streaming, no new message), so we
+    //     leave them alone
+    let prevMessageCount = 0;
     effect(() => {
       const list = this.session.messages();
-      const last = list[list.length - 1];
+      const count = list.length;
+      const last = list[count - 1];
       void last?.content;
       void last?.thinking;
       void last?.status;
-      if (!this.anchored()) return;
+      const countChanged = count !== prevMessageCount;
+      prevMessageCount = count;
+      if (this.userInteracting()) return;
+      if (!this.session.isStreaming() && !countChanged) return;
       const sentinel = this.scrollSentinel()?.nativeElement;
       if (!sentinel) return;
       sentinel.scrollIntoView({ block: 'end', inline: 'nearest' });
     });
   }
 
-  /** "Jump to latest" floating button handler — snap to bottom; the
-   *  IntersectionObserver will re-anchor automatically once the
-   *  sentinel intersects again. */
-  protected jumpToLatest(): void {
-    const sentinel = this.scrollSentinel()?.nativeElement;
-    if (!sentinel) return;
-    sentinel.scrollIntoView({ block: 'end', inline: 'nearest' });
-  }
 
   protected async send(event: ComposerSendEvent): Promise<void> {
     const trimmed = event.text.trim();
