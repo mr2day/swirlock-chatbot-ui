@@ -5,7 +5,11 @@
 /* Desktop layout: avatar in a left column, body in a right column.
    The .bubble-head wrapper uses `display: contents` here so its
    children (avatar + author) participate in the parent grid
-   directly via grid-area. */
+   directly via grid-area.
+
+   Assistant avatars are larger than user avatars so the persona
+   character reads as the visual anchor of the conversation; the
+   "you" tile stays small and unobtrusive. */
 .bubble {
   display: grid;
   grid-template-columns: 52px 1fr;
@@ -15,6 +19,10 @@
     "avatar body";
   gap: 0 var(--space-3);
   padding: var(--space-3) 0;
+}
+
+.bubble.is-assistant {
+  grid-template-columns: 88px 1fr;
 }
 
 .bubble-head {
@@ -29,6 +37,11 @@
   align-items: center;
   justify-content: center;
   align-self: start;
+}
+
+.bubble.is-assistant .avatar {
+  width: 88px;
+  height: 88px;
 }
 
 
