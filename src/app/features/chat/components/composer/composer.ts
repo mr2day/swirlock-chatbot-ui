@@ -179,10 +179,15 @@ export class Composer {
     });
     this.text.set('');
     this.attachments.set([]);
-    // Schedule a focus after the autosize effect has settled. The
-    // effect itself handles the collapse-to-min-height when text
-    // becomes empty, so we just need to put the cursor back.
-    queueMicrotask(() => this.textarea()?.nativeElement?.focus());
+    // Put the cursor back in the textarea. We use `setTimeout(0)`
+    // rather than `queueMicrotask` because emitting `send` flips the
+    // parent's `streaming()` signal, which triggers an Angular
+    // re-render that swaps the send button for the stop button.
+    // That DOM churn happens AFTER microtasks but BEFORE the next
+    // task, so a microtask-scheduled focus gets knocked off; a
+    // task-scheduled focus lands after the render has settled and
+    // sticks.
+    setTimeout(() => this.textarea()?.nativeElement?.focus(), 0);
   }
 
   protected onStop(): void {
