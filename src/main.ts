@@ -34,7 +34,25 @@ async function loadRuntimeConfig(): Promise<RuntimeConfig> {
 }
 
 void loadRuntimeConfig().then((cfg) => {
-  bootstrapApplication(App, createAppConfig(cfg)).catch((err) =>
-    console.error(err),
-  );
+  bootstrapApplication(App, createAppConfig(cfg))
+    .then(notifyLiveUpdateReady)
+    .catch((err) => console.error(err));
 });
+
+/**
+ * On native (Capacitor) the @capgo/capacitor-updater plugin is
+ * watching for this acknowledgement. If we don't call it within
+ * `appReadyTimeout` (default 10s) after a freshly downloaded web
+ * bundle starts, the plugin assumes the new bundle crashed and rolls
+ * back to the previous one on next launch. Calling it right after
+ * Angular bootstraps is the equivalent of "this version actually
+ * rendered, keep it." A no-op on web.
+ */
+async function notifyLiveUpdateReady(): Promise<void> {
+  try {
+    const { CapacitorUpdater } = await import('@capgo/capacitor-updater');
+    await CapacitorUpdater.notifyAppReady();
+  } catch {
+    /* native plugin not present (web build) — ignore */
+  }
+}

@@ -13,6 +13,28 @@ const config: CapacitorConfig = {
   appId: 'com.swirlock.gigi',
   appName: 'Gigi the Robot',
   webDir: 'dist/swirlock-chatbot-ui/browser',
+  plugins: {
+    // Capacitor Live Updates over a self-hosted manifest served by
+    // the chat orchestrator at api.gigi-the-robot.com/updates. On
+    // launch the plugin POSTs the device's current version to
+    // `updateUrl`, the orchestrator returns the latest manifest, and
+    // if the bundle version is newer the plugin downloads it in the
+    // background and applies it on next launch. `notifyAppReady()`
+    // (called from main.ts after Angular bootstraps) confirms the
+    // bundle rendered successfully; if it doesn't fire within
+    // `appReadyTimeout` the plugin rolls back to the previous bundle.
+    //
+    // statsUrl/channelUrl are blanked so the plugin doesn't phone
+    // home to capgo.app — this deployment is fully self-hosted.
+    CapacitorUpdater: {
+      autoUpdate: true,
+      updateUrl: 'https://api.gigi-the-robot.com/updates',
+      statsUrl: '',
+      channelUrl: '',
+      autoDeleteFailed: true,
+      autoDeletePrevious: true,
+    },
+  },
 };
 
 export default config;

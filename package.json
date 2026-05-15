@@ -29,6 +29,7 @@
     "@capacitor/browser": "^8.0.3",
     "@capacitor/cli": "^8.3.3",
     "@capacitor/core": "^8.3.3",
+    "@capgo/capacitor-updater": "^8.45.11",
     "dompurify": "^3.4.2",
     "express": "^4.21.2",
     "highlight.js": "^11.11.1",
@@ -41,7 +42,9 @@
     "@angular/build": "^21.2.9",
     "@angular/cli": "^21.2.9",
     "@angular/compiler-cli": "^21.2.0",
+    "@types/adm-zip": "^0.5.8",
     "@types/dompurify": "^3.0.5",
+    "adm-zip": "^0.5.17",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
   }
