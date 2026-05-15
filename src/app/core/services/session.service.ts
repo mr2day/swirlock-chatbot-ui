@@ -138,6 +138,7 @@ export class SessionService {
     // listed in the sidebar when user B signs in.
     effect(() => {
       const sub = this.currentSub();
+      const personaId = this.persona.activeId();
       untracked(() => {
         this.cancelStream();
         if (!sub) {
@@ -146,26 +147,33 @@ export class SessionService {
           this._messages.set([]);
           return;
         }
-        // Paint immediately from the local cache so the sidebar has
-        // something to show, then fetch the canonical list from the
-        // orchestrator and replace.
-        this._sessions.set(this.loadSessions(sub));
-        this._activeId.set(this.loadActiveId(sub));
-        void this.refreshSessionsFromServer(sub);
+        // Switching persona (or signing in) clears the open conversation
+        // and the in-memory list, then asks the orchestrator for the
+        // sessions that belong to the now-active persona. The local
+        // cache is keyed per (user, persona) so sessions never bleed
+        // across personas in the sidebar.
+        this._activeId.set(null);
+        this._messages.set([]);
+        this._sessions.set(this.loadSessions(sub, personaId));
+        void this.refreshSessionsFromServer(sub, personaId);
       });
     });
   }
 
   /**
-   * Fetches the user's sessions from the orchestrator and writes them
-   * into the local store. Sessions live server-side; the
-   * localStorage copy is a cache that's wrong as soon as the user
-   * signs in on a different device.
+   * Fetches the active persona's sessions from the orchestrator and
+   * writes them into the local store. Sessions live server-side; the
+   * localStorage copy is a per-(user, persona) cache that's wrong as
+   * soon as the user signs in on a different device.
    */
-  private async refreshSessionsFromServer(sub: string): Promise<void> {
+  private async refreshSessionsFromServer(
+    sub: string,
+    personaId: string,
+  ): Promise<void> {
     try {
-      const { sessions } = await this.stream.listSessions();
+      const { sessions } = await this.stream.listSessions({ personaId });
       if (this.currentSub() !== sub) return;
+      if (this.persona.activeId() !== personaId) return;
       this._sessions.set(sessions);
       this.persistSessions();
     } catch (err) {
@@ -202,11 +210,12 @@ export class SessionService {
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,
-        persona: { name: persona.name, systemPrompt },
+        persona: { id: persona.id, name: persona.name, systemPrompt },
       });
       const sessionId = res.data.sessionId;
       const summary: SessionSummary = {
         sessionId,
+        personaId: persona.id,
         title: 'New chat',
         createdAt: res.data.createdAt,
         updatedAt: res.data.createdAt,
@@ -698,9 +707,17 @@ export class SessionService {
     });
   }
 
-  private loadSessions(sub: string): SessionSummary[] {
+  private sessionsKey(sub: string, personaId: string): string {
+    return `${SESSIONS_KEY_PREFIX}${sub}.${personaId}`;
+  }
+
+  private activeIdKey(sub: string, personaId: string): string {
+    return `${ACTIVE_SESSION_KEY_PREFIX}${sub}.${personaId}`;
+  }
+
+  private loadSessions(sub: string, personaId: string): SessionSummary[] {
     try {
-      const raw = localStorage.getItem(SESSIONS_KEY_PREFIX + sub);
+      const raw = localStorage.getItem(this.sessionsKey(sub, personaId));
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? (parsed as SessionSummary[]) : [];
@@ -709,20 +726,13 @@ export class SessionService {
     }
   }
 
-  private loadActiveId(sub: string): string | null {
-    try {
-      return localStorage.getItem(ACTIVE_SESSION_KEY_PREFIX + sub);
-    } catch {
-      return null;
-    }
-  }
-
   private persistSessions(): void {
     const sub = this.currentSub();
     if (!sub) return;
+    const personaId = this.persona.activeId();
     try {
       localStorage.setItem(
-        SESSIONS_KEY_PREFIX + sub,
+        this.sessionsKey(sub, personaId),
         JSON.stringify(this._sessions()),
       );
     } catch {
@@ -733,10 +743,11 @@ export class SessionService {
   private persistActiveId(): void {
     const sub = this.currentSub();
     if (!sub) return;
+    const personaId = this.persona.activeId();
     try {
       const id = this._activeId();
-      if (id) localStorage.setItem(ACTIVE_SESSION_KEY_PREFIX + sub, id);
-      else localStorage.removeItem(ACTIVE_SESSION_KEY_PREFIX + sub);
+      if (id) localStorage.setItem(this.activeIdKey(sub, personaId), id);
+      else localStorage.removeItem(this.activeIdKey(sub, personaId));
     } catch {
       /* ignore */
     }

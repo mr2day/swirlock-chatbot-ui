@@ -107,7 +107,7 @@ export class ChatStreamService {
   createSession(args: {
     userId: string;
     displayName?: string;
-    persona: { name: string; systemPrompt: string };
+    persona: { id: string; name: string; systemPrompt: string };
     correlationId?: string;
   }): Promise<CreateSessionResponse> {
     const correlationId = args.correlationId ?? uuid();
@@ -142,21 +142,26 @@ export class ChatStreamService {
     }));
   }
 
-  listSessions(
-    correlationId = uuid(),
-  ): Promise<{
+  listSessions(args?: {
+    personaId?: string;
+    correlationId?: string;
+  }): Promise<{
     sessions: {
       sessionId: string;
+      personaId: string | null;
       title: string;
       createdAt: string;
       updatedAt: string;
     }[];
   }> {
+    const correlationId = args?.correlationId ?? uuid();
+    const payload: { personaId?: string } = {};
+    if (args?.personaId) payload.personaId = args.personaId;
     return this.requestResponse(
       'session.list',
       'session.listed',
       correlationId,
-      {},
+      payload,
     );
   }
 

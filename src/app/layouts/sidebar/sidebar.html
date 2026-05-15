@@ -23,6 +23,12 @@
                   routerLinkActive="active"
                   (click)="onSessionClick(s.sessionId)"
                 >
+                  <img
+                    class="session-avatar"
+                    [src]="sessionLogo(s.personaId)"
+                    alt=""
+                    aria-hidden="true"
+                  />
                   <span class="session-title">{{ s.title }}</span>
                 </a>
                 <button

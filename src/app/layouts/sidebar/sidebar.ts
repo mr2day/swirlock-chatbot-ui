@@ -3,6 +3,8 @@ import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { LayoutService } from '../../core/services/layout.service';
 import { SessionService } from '../../core/services/session.service';
 import { AuthService } from '../../core/services/auth.service';
+import { PersonaService } from '../../core/services/persona.service';
+import { findPersona } from '../../core/personas/personas.registry';
 import { PersonaSwitcher } from '../persona-switcher/persona-switcher';
 import type { SessionSummary } from '../../core/models/chat-message.model';
 
@@ -25,7 +27,18 @@ export class Sidebar {
   protected readonly session = inject(SessionService);
   protected readonly layout = inject(LayoutService);
   protected readonly auth = inject(AuthService);
+  protected readonly persona = inject(PersonaService);
   private readonly router = inject(Router);
+
+  /**
+   * Resolves the small avatar shown next to a session row. Falls back
+   * to the currently active persona's logo for legacy sessions that
+   * predate the persona-scoping migration (`personaId === null`).
+   */
+  protected sessionLogo(personaId: string | null): string {
+    const found = personaId ? findPersona(personaId) : undefined;
+    return (found ?? this.persona.active()).logoUrl;
+  }
 
   protected logout(): void {
     void this.auth.logout();

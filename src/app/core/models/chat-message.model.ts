@@ -71,6 +71,13 @@ export interface ChatMessage {
 
 export interface SessionSummary {
   sessionId: string;
+  /**
+   * Stable persona identifier (e.g. `marcello-voltieri`) that owns
+   * this session. May be `null` on legacy sessions created before the
+   * persona-scoping migration shipped; the UI tolerates that and
+   * falls back to the active persona's logo.
+   */
+  personaId: string | null;
   title: string;
   createdAt: string;
   updatedAt: string;
