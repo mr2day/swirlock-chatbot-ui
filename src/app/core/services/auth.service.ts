@@ -94,8 +94,15 @@ export class AuthService {
       void this.mgr.signinSilent().catch(() => this.setUser(null));
     });
     this.mgr.events.addSilentRenewError((err) => {
-      console.warn('[auth] silent renew failed', err);
-      this.setUser(null);
+      // automaticSilentRenew fires BEFORE the access token actually
+      // expires. A network blip or transient IdP hiccup during that
+      // pre-emptive refresh used to log the user out, even though the
+      // current token was still valid. We log and wait: oidc-client-ts
+      // will retry, and if the token does eventually expire the
+      // addAccessTokenExpired handler above runs another silent renew
+      // and only signs the user out if THAT one also fails. That is
+      // the right moment to give up, not this one.
+      console.warn('[auth] silent renew failed (token still valid; will retry):', err);
     });
 
     if (this.isNative()) {

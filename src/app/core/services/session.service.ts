@@ -134,11 +134,10 @@ export class SessionService {
 
   constructor() {
     // Reload (or clear) the local cache whenever the authenticated user
-    // changes. Without this, sessions cached for user A would still be
-    // listed in the sidebar when user B signs in.
+    // changes. Persona changes are NOT auto-watched here — see the
+    // commentary on `switchPersona()` below for why.
     effect(() => {
       const sub = this.currentSub();
-      const personaId = this.persona.activeId();
       untracked(() => {
         this.cancelStream();
         if (!sub) {
@@ -147,17 +146,48 @@ export class SessionService {
           this._messages.set([]);
           return;
         }
-        // Switching persona (or signing in) clears the open conversation
-        // and the in-memory list, then asks the orchestrator for the
-        // sessions that belong to the now-active persona. The local
-        // cache is keyed per (user, persona) so sessions never bleed
-        // across personas in the sidebar.
-        this._activeId.set(null);
-        this._messages.set([]);
+        const personaId = this.persona.activeId();
         this._sessions.set(this.loadSessions(sub, personaId));
         void this.refreshSessionsFromServer(sub, personaId);
       });
     });
+  }
+
+  /**
+   * User-driven persona switch from the topbar. Clears the active
+   * conversation, swaps the persona theme/avatar/favicon, and reloads
+   * the sidebar with the new persona's sessions.
+   *
+   * Persona changes are NOT routed through a generic effect on
+   * `persona.activeId()` because there are two distinct callers with
+   * opposite intents:
+   *
+   *   - the topbar switcher (this method) — clear the active session,
+   *     start fresh in the new persona;
+   *   - back-nav into an existing session that belongs to a different
+   *     persona (handled inside `openSession`) — keep the session
+   *     open, just sync the chrome to match.
+   *
+   * An effect on the signal can't tell the two apart, so it ends up
+   * clobbering the second case. Calling the two paths explicitly
+   * keeps the wiring honest.
+   */
+  switchPersona(personaId: string): void {
+    if (personaId === this.persona.activeId()) return;
+    this.cancelStream();
+    const previousSessionId = this._activeId();
+    if (previousSessionId) {
+      this.stream.closeSession(previousSessionId);
+    }
+    this.persona.setActive(personaId);
+    this._activeId.set(null);
+    this._messages.set([]);
+    const sub = this.currentSub();
+    if (sub) {
+      this._sessions.set(this.loadSessions(sub, personaId));
+      void this.refreshSessionsFromServer(sub, personaId);
+    }
+    this.persistActiveId();
   }
 
   /**
@@ -248,6 +278,28 @@ export class SessionService {
     this.persistActiveId();
     try {
       const res = await this.stream.getSession(sessionId);
+
+      // The URL is the source of truth for which conversation is
+      // open. If that conversation belongs to a different persona
+      // than the topbar currently shows (typical case: phone back
+      // button into a session of a previously-active persona), sync
+      // the chrome — theme, avatar, favicon, sidebar list — to match
+      // the session. We do this INSTEAD of routing through
+      // `switchPersona()` because we explicitly do NOT want to clear
+      // the active session we're about to display.
+      const sessionPersonaId = res.data.personaId;
+      if (
+        sessionPersonaId &&
+        sessionPersonaId !== this.persona.activeId()
+      ) {
+        this.persona.setActive(sessionPersonaId);
+        const sub = this.currentSub();
+        if (sub) {
+          this._sessions.set(this.loadSessions(sub, sessionPersonaId));
+          void this.refreshSessionsFromServer(sub, sessionPersonaId);
+        }
+      }
+
       const messages: ChatMessage[] = res.data.messages.map((m) => ({
         localId: uuid(),
         messageId: m.messageId,

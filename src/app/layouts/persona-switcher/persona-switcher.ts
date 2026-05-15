@@ -9,6 +9,8 @@ import {
   signal,
 } from '@angular/core';
 import { PersonaService } from '../../core/services/persona.service';
+import { SessionService } from '../../core/services/session.service';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-persona-switcher',
@@ -19,6 +21,8 @@ import { PersonaService } from '../../core/services/persona.service';
 })
 export class PersonaSwitcher {
   protected readonly persona = inject(PersonaService);
+  private readonly session = inject(SessionService);
+  private readonly router = inject(Router);
   private readonly host = inject(ElementRef<HTMLElement>);
 
   /** When true, the trigger shows the short description under the name. */
@@ -42,8 +46,13 @@ export class PersonaSwitcher {
   }
 
   protected select(id: string): void {
-    this.persona.setActive(id);
+    this.session.switchPersona(id);
     this.open.set(false);
+    // Drop any stale `/c/:sessionId` from the URL — that conversation
+    // belongs to the previous persona and is no longer in the sidebar.
+    // Landing on the empty `/chat` state lets the user pick or start
+    // a session in the persona they just switched to.
+    void this.router.navigateByUrl('/chat');
   }
 
   @HostListener('document:click', ['$event'])

@@ -26,6 +26,7 @@ export class PersonaService {
 
   constructor() {
     this.applyTheme(this.active());
+    this.applyFavicon(this.active());
   }
 
   setActive(id: string): void {
@@ -37,6 +38,7 @@ export class PersonaService {
       /* storage unavailable; ignore */
     }
     this.applyTheme(this.active());
+    this.applyFavicon(this.active());
   }
 
   private loadInitial(): string {
@@ -64,5 +66,22 @@ export class PersonaService {
     root.style.setProperty('--persona-bubble-user', t.bubbleUser);
     root.style.setProperty('--persona-bubble-assistant', t.bubbleAssistant);
     root.style.setProperty('--persona-danger', t.danger);
+  }
+
+  /**
+   * Points the browser tab icon at the active persona's logo. Replaces
+   * the static favicon hardcoded in `index.html`. Re-applied on every
+   * persona switch so the tab tile reflects who the user is currently
+   * talking to.
+   */
+  private applyFavicon(persona: Persona): void {
+    let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/png';
+      document.head.appendChild(link);
+    }
+    link.href = persona.logoUrl;
   }
 }

@@ -61,6 +61,8 @@ export interface CreateSessionResponse {
  */
 export interface GetSessionResponseData {
   sessionId: string;
+  personaId: string | null;
+  personaName: string | null;
   createdAt: string;
   updatedAt: string;
   status: string;
