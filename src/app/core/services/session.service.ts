@@ -316,6 +316,9 @@ export class SessionService {
           status: 'done',
           createdAt: m.createdAt,
           ...(images.length > 0 ? { images } : {}),
+          ...(m.citations && m.citations.length > 0
+            ? { citations: m.citations }
+            : {}),
         };
       });
       this._messages.set(messages);

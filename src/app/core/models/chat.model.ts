@@ -1,4 +1,5 @@
 import type { ApiMeta } from './api-meta.model';
+import type { CitationRef } from './stream-event.model';
 
 export type RequestPriority = 'interactive' | 'background' | 'maintenance';
 
@@ -87,6 +88,13 @@ export interface PersistedMessage {
   createdAt: string;
   /** User-attached images on this message (only set for user-role messages). */
   images?: PersistedImageRef[];
+  /**
+   * Citations / source list attached to this assistant turn. Set only
+   * for assistant-role messages whose answer round used SEARCH
+   * evidence. Surfaced verbatim from the orchestrator's
+   * `messages.citations_json` column.
+   */
+  citations?: CitationRef[];
 }
 
 export interface DeleteSessionResponse {
