@@ -1,9 +1,12 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import type {
   ChatMessage,
+  ChatMessageImage,
   SessionSummary,
 } from '../models/chat-message.model';
+import type { PersistedImageRef } from '../models/chat.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
+import { RUNTIME_CONFIG } from '../config/runtime-config';
 import { AuthService } from './auth.service';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
 import { LocationService } from './location.service';
@@ -114,6 +117,7 @@ export class SessionService {
   private readonly persona = inject(PersonaService);
   private readonly location = inject(LocationService);
   private readonly auth = inject(AuthService);
+  private readonly cfg = inject(RUNTIME_CONFIG);
 
   private readonly _sessions = signal<SessionSummary[]>([]);
   private readonly _activeId = signal<string | null>(null);
@@ -300,16 +304,20 @@ export class SessionService {
         }
       }
 
-      const messages: ChatMessage[] = res.data.messages.map((m) => ({
-        localId: uuid(),
-        messageId: m.messageId,
-        turnId: m.turnId,
-        role: m.role === 'system' ? 'assistant' : m.role,
-        content: m.content,
-        thinking: '',
-        status: 'done',
-        createdAt: m.createdAt,
-      }));
+      const messages: ChatMessage[] = res.data.messages.map((m) => {
+        const images = this.rehydrateImageRefs(m.images);
+        return {
+          localId: uuid(),
+          messageId: m.messageId,
+          turnId: m.turnId,
+          role: m.role === 'system' ? 'assistant' : m.role,
+          content: m.content,
+          thinking: '',
+          status: 'done',
+          createdAt: m.createdAt,
+          ...(images.length > 0 ? { images } : {}),
+        };
+      });
       this._messages.set(messages);
 
       const firstUser = messages.find((m) => m.role === 'user');
@@ -803,6 +811,40 @@ export class SessionService {
     } catch {
       /* ignore */
     }
+  }
+
+  /**
+   * Returns the HTTP base URL for fetching image bytes from the
+   * orchestrator. Derived from the WS base URL — `wss://api...` →
+   * `https://api...` — so a single piece of runtime config covers
+   * both transports.
+   */
+  private apiHttpBaseUrl(): string {
+    return this.cfg.wsBaseUrl
+      .replace(/^wss:/i, 'https:')
+      .replace(/^ws:/i, 'http:')
+      .replace(/\/$/, '');
+  }
+
+  /**
+   * Turns the persisted image refs the orchestrator returns on
+   * `session.get` into the `ChatMessageImage` shape the message-bubble
+   * renders. The `dataUrl` field is reused as the `src` for the
+   * <img> — when the message came back from the DB it carries an
+   * `https://api…/images/<id>` URL; when the user just pasted a
+   * fresh image it carries the original `data:` URL. The browser
+   * handles both transparently.
+   */
+  private rehydrateImageRefs(
+    refs: PersistedImageRef[] | undefined,
+  ): ChatMessageImage[] {
+    if (!refs || refs.length === 0) return [];
+    const base = this.apiHttpBaseUrl();
+    return refs.map((r) => ({
+      id: r.imageId,
+      dataUrl: `${base}/images/${r.imageId}`,
+      mimeType: r.mimeType ?? 'image/jpeg',
+    }));
   }
 
   private errorMessage(err: unknown): string {

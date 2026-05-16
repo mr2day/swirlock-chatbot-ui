@@ -74,12 +74,19 @@ export interface GetSessionResponse {
   data: GetSessionResponseData;
 }
 
+export interface PersistedImageRef {
+  imageId: string;
+  mimeType: string | null;
+}
+
 export interface PersistedMessage {
   messageId: string;
   turnId: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  /** User-attached images on this message (only set for user-role messages). */
+  images?: PersistedImageRef[];
 }
 
 export interface DeleteSessionResponse {
