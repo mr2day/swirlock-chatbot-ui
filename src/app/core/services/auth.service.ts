@@ -1,4 +1,4 @@
-import { Injectable, NgZone, inject, signal } from '@angular/core';
+import { Injectable, NgZone, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   Log,
@@ -44,6 +44,13 @@ export class AuthService {
   private readonly _user = signal<User | null>(null);
   readonly currentUser = this._user.asReadonly();
   readonly isAuthenticated = signal(false);
+  /**
+   * Flips to `true` once the initial getUser check has completed. The
+   * auto-redirect effect waits for this so it doesn't yank the user
+   * off `/chat` during boot before the stored token has been
+   * inspected.
+   */
+  private readonly bootComplete = signal(false);
   private readyResolve: (() => void) | null = null;
   private readonly readyPromise = new Promise<void>((r) => (this.readyResolve = r));
 
@@ -78,32 +85,26 @@ export class AuthService {
     scope: 'openid profile offline_access',
     extraQueryParams: { resource: this.cfg.oidcResource },
     extraTokenParams: { resource: this.cfg.oidcResource },
-    // Silent renew works on both web and native. On web it uses a
-    // hidden iframe to /authorize; on native (where iframes can't
-    // reliably reach the IdP) oidc-client-ts automatically uses the
-    // refresh_token grant against /token instead, since we have
-    // offline_access in scope.
-    automaticSilentRenew: true,
+    // Silent renew is DISABLED. The IdP issues 10-year access tokens
+    // (see swirlock-idp-base/src/idp/oidc-provider.factory.ts), so
+    // there is nothing to refresh on a normal session. Keeping the
+    // automatic silent-renew loop on costs us nothing in the happy
+    // path but signs the user out cold every time a refresh attempt
+    // fails — and refresh attempts fail for arbitrary reasons (brief
+    // network drop, IdP rolling its keys, the user being offline for
+    // a minute on a phone). This is a personal chatbot, not a bank.
+    automaticSilentRenew: false,
     loadUserInfo: false,
   });
 
   constructor() {
     this.mgr.events.addUserLoaded((u) => this.setUser(u));
     this.mgr.events.addUserUnloaded(() => this.setUser(null));
-    this.mgr.events.addAccessTokenExpired(() => {
-      void this.mgr.signinSilent().catch(() => this.setUser(null));
-    });
-    this.mgr.events.addSilentRenewError((err) => {
-      // automaticSilentRenew fires BEFORE the access token actually
-      // expires. A network blip or transient IdP hiccup during that
-      // pre-emptive refresh used to log the user out, even though the
-      // current token was still valid. We log and wait: oidc-client-ts
-      // will retry, and if the token does eventually expire the
-      // addAccessTokenExpired handler above runs another silent renew
-      // and only signs the user out if THAT one also fails. That is
-      // the right moment to give up, not this one.
-      console.warn('[auth] silent renew failed (token still valid; will retry):', err);
-    });
+    // The two former silent-renew event handlers (addAccessTokenExpired,
+    // addSilentRenewError) are intentionally not registered. With
+    // automaticSilentRenew off and a 10-year token TTL there's nothing
+    // left for them to do; their previous bodies were the source of
+    // the "signed out for no reason" complaints.
 
     if (this.isNative()) {
       void this.bindNativeDeepLinks();
@@ -111,59 +112,39 @@ export class AuthService {
 
     void this.mgr
       .getUser()
-      .then(async (u) => {
+      .then((u) => {
+        // 10-year tokens — a stored, non-expired user just gets
+        // restored. Stored-but-expired (which would have to mean the
+        // user came back ten years later, or the IdP rolled its keys)
+        // is treated as signed-out; the user will hit the regular
+        // login redirect from the app shell when they try to use a
+        // protected route.
         if (u && !u.expired) {
           this.consumeLogoutPending();
           this.setUser(u);
-          return;
-        }
-        // Persisted user has an expired access token but might still
-        // have a valid refresh token (we issue 1-year refresh tokens
-        // and rotate on each use). Try to silently refresh before
-        // declaring the user logged out — otherwise reopening the app
-        // after an hour shows the landing page even though we have
-        // everything we need to renew.
-        if (u?.refresh_token) {
-          try {
-            const renewed = await this.mgr.signinSilent();
-            if (renewed) {
-              this.consumeLogoutPending();
-              this.setUser(renewed);
-              return;
-            }
-          } catch (err) {
-            console.warn('[auth] silent renew on boot failed', err);
-          }
-        }
-        this.setUser(null);
-        // If the user just cancelled an RP-initiated logout, the IdP
-        // session cookie is still alive but oidc-client-ts has already
-        // wiped our local user state (it calls removeUser() inside
-        // signoutRedirect before navigating). A prompt=none redirect
-        // re-hydrates the user without any IdP UI flash. Native shell
-        // skips this since silent renew can't run in a custom-tab flow.
-        if (
-          !this.isNative() &&
-          this.consumeLogoutPending() &&
-          !location.pathname.startsWith('/auth/')
-        ) {
-          try {
-            await this.mgr.signinRedirect({
-              prompt: 'none',
-              extraQueryParams: {
-                resource: this.cfg.oidcResource,
-                persona: this.persona.activeId(),
-              },
-            });
-          } catch (err) {
-            console.warn('[auth] silent re-login after cancelled logout failed', err);
-          }
+        } else {
+          this.setUser(null);
         }
       })
       .finally(() => {
         this.readyResolve?.();
         this.readyResolve = null;
+        this.bootComplete.set(true);
       });
+
+    // Whenever the user is in a signed-out state AFTER boot, route
+    // them to the landing page. The landing page is the only thing
+    // they're allowed to see when signed out. Skipped for the auth
+    // callback routes (which need to render to complete the redirect
+    // dance) and skipped when we're already on `/`.
+    effect(() => {
+      if (!this.bootComplete()) return;
+      if (this.isAuthenticated()) return;
+      const path = window.location.pathname;
+      if (path.startsWith('/auth/')) return;
+      if (path === '/' || path === '') return;
+      void this.router.navigateByUrl('/');
+    });
   }
 
   private isNative(): boolean {
