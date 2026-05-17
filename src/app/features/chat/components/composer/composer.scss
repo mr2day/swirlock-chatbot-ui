@@ -197,7 +197,12 @@
 }
 
 .hint-version {
-  white-space: nowrap;
+  /* Let the version wrap if the container is narrower than the
+     string. Keeping `white-space: nowrap` here was forcing the
+     fixed-width string to overflow .hints-wrap on narrow phones,
+     producing a horizontal scrollbar on the whole page. */
+  word-break: keep-all;
+  min-width: 0;
 }
 
 /* Wide enough for both texts in one row: row layout, hint left,

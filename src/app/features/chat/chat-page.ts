@@ -47,52 +47,46 @@ export class ChatPage {
   );
 
   /**
-   * Autoscroll behaviour switch.
+   * Position-driven autoscroll, hot-zone based.
    *
-   * `false` (current default) — sticky-stop: once the user interacts
-   * with the scroll layer (pointerdown / wheel), autoscroll stops for
-   * the rest of the session and never re-engages automatically. The
-   * user must scroll to the bottom themselves if they want to follow
-   * the stream again. Page reload resets to "autoscroll on".
+   * Master switch: `userInteracting`. While true, the autoscroll
+   * effect leaves the scroll position alone.
    *
-   * `true` — legacy: the older "500ms release timer + hot-zone +
-   * ease-in-out catch-up" behaviour. Kept in the codebase so we can
-   * flip back to it without rewriting if the sticky-stop UX needs
-   * to be reverted.
-   */
-  private static readonly LEGACY_AUTOSCROLL = false;
-
-  /**
-   * Flips true the first time the user touches/clicks/wheels inside
-   * the scroll area. While true, the autoscroll effect leaves the
-   * scroll position alone.
+   * Two triggers flip it true:
+   *   - Pointer/wheel input while the user is actively dragging
+   *     (pointerActive flag below).
+   *   - Scroll position more than HOT_ZONE_PX from the bottom (user
+   *     has scrolled up to read history).
    *
-   * In LEGACY mode this transitions back to false 500ms after the
-   * last input event. In sticky-stop mode (default) it never
-   * transitions back automatically — the user is in manual control
-   * for the rest of the session.
+   * Two triggers flip it false:
+   *   - Pointer release while scroll position is within HOT_ZONE_PX
+   *     of the bottom (user let go near the live tail → autoscroll
+   *     resumes for next chunk).
+   *   - send() (user submitted a new turn → re-arm regardless).
    */
   protected readonly userInteracting = signal<boolean>(false);
-  private releaseTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** How long after the last input event before we treat the user as
-   *  "done" and resume autoscroll. LEGACY mode only. */
-  private static readonly USER_RELEASE_DELAY_MS = 500;
+  /** Distance-from-bottom (in px) below which we treat the user as
+   *  "following the stream" and autoscroll re-engages on release.
+   *  Above this distance, the user is reading history and we leave
+   *  them alone. */
+  private static readonly HOT_ZONE_PX = 200;
 
-  /** Smooth release-snap is only applied when the user's viewport is
-   *  this close to the bottom — i.e. they're reading near the live
-   *  tail. If they're farther up reading older content, releasing
-   *  shouldn't yank them anywhere. LEGACY mode only. */
-  private static readonly HOT_ZONE_PX = 2000;
+  /** True while a pointer is down on the scroll layer. Suppresses
+   *  the scroll-event-based position recheck so we don't fight the
+   *  user's drag. */
+  private pointerActive = false;
 
-  /** Duration of the ease-in-out animation on the release-snap.
-   *  LEGACY mode only. */
-  private static readonly EASE_DURATION_MS = 400;
+  /** True when our autoscroll effect is the one writing scrollTop;
+   *  we skip the scroll-event handler in this window so the
+   *  programmatic write doesn't trigger a position recheck that
+   *  would oscillate against itself. */
+  private programmaticScrollUntil = 0;
 
-  /** Pending rAF id for the release-snap animation, so we can cancel
-   *  if the user touches the page again before it finishes. LEGACY
-   *  mode only. */
-  private easeRafId: number | null = null;
+  /** Pending rAF id for the throttled scroll-to-bottom writes during
+   *  streaming, so we never do more than one scrollTop write per
+   *  frame even if multiple chunks arrive in the same tick. */
+  private pendingScrollRaf: number | null = null;
 
   constructor() {
     // Fetch the model's capability flags as soon as a chat page mounts so
@@ -113,77 +107,67 @@ export class ChatPage {
       }
     });
 
-    // Track user *input* directly. Any pointer-down or wheel inside
-    // the scroll area sets `userInteracting=true`.
+    // Input + scroll-position tracker.
     //
-    // In LEGACY mode the release path (pointerup/cancel/leave or
-    // 500ms after the last wheel) sets it back to false with a
-    // half-second grace delay.
+    // Pointer down/wheel marks the user as actively interacting:
+    // autoscroll pauses immediately so we don't fight the drag.
     //
-    // In sticky-stop mode (default) the release path is a no-op:
-    // once the user has touched the scroll layer, autoscroll stays
-    // off for the rest of the session.
+    // Pointer up/cancel/leave reassesses based on scroll position:
+    //   - if the user let go inside the hot zone (within
+    //     HOT_ZONE_PX of the bottom), they're following the live
+    //     tail — autoscroll resumes on the next chunk.
+    //   - if they let go outside the hot zone, they're reading
+    //     older content — autoscroll stays paused.
+    //
+    // The scroll event itself drives the same recheck during wheel
+    // and trackpad scrolls (which have no explicit "release"). We
+    // suppress the recheck during our own rAF-driven scrollTop
+    // writes via programmaticScrollUntil to avoid feedback loops.
     effect((onCleanup) => {
       const host = this.scrollHost()?.nativeElement;
       if (!host) return;
-      const begin = () => {
-        if (ChatPage.LEGACY_AUTOSCROLL) {
-          if (this.releaseTimer) {
-            clearTimeout(this.releaseTimer);
-            this.releaseTimer = null;
-          }
-          if (this.easeRafId != null) {
-            cancelAnimationFrame(this.easeRafId);
-            this.easeRafId = null;
-          }
-        }
+
+      const onPointerDown = () => {
+        this.pointerActive = true;
         this.userInteracting.set(true);
       };
-      const scheduleEnd = () => {
-        if (!ChatPage.LEGACY_AUTOSCROLL) return;
-        if (this.releaseTimer) clearTimeout(this.releaseTimer);
-        this.releaseTimer = setTimeout(() => {
-          this.userInteracting.set(false);
-          this.releaseTimer = null;
-        }, ChatPage.USER_RELEASE_DELAY_MS);
+      const onPointerEnd = () => {
+        this.pointerActive = false;
+        this.recheckPosition(host);
       };
-      const onWheel = () => {
-        begin();
-        scheduleEnd();
+      const onScroll = () => {
+        if (this.pointerActive) return;
+        if (performance.now() < this.programmaticScrollUntil) return;
+        this.recheckPosition(host);
       };
-      host.addEventListener('pointerdown', begin, { passive: true });
-      host.addEventListener('pointerup', scheduleEnd, { passive: true });
-      host.addEventListener('pointercancel', scheduleEnd, { passive: true });
-      host.addEventListener('pointerleave', scheduleEnd, { passive: true });
-      host.addEventListener('wheel', onWheel, { passive: true });
+
+      host.addEventListener('pointerdown', onPointerDown, { passive: true });
+      host.addEventListener('pointerup', onPointerEnd, { passive: true });
+      host.addEventListener('pointercancel', onPointerEnd, { passive: true });
+      host.addEventListener('pointerleave', onPointerEnd, { passive: true });
+      host.addEventListener('scroll', onScroll, { passive: true });
       onCleanup(() => {
-        host.removeEventListener('pointerdown', begin);
-        host.removeEventListener('pointerup', scheduleEnd);
-        host.removeEventListener('pointercancel', scheduleEnd);
-        host.removeEventListener('pointerleave', scheduleEnd);
-        host.removeEventListener('wheel', onWheel);
-        if (this.releaseTimer) clearTimeout(this.releaseTimer);
+        host.removeEventListener('pointerdown', onPointerDown);
+        host.removeEventListener('pointerup', onPointerEnd);
+        host.removeEventListener('pointercancel', onPointerEnd);
+        host.removeEventListener('pointerleave', onPointerEnd);
+        host.removeEventListener('scroll', onScroll);
       });
     });
 
     // Single autoscroll effect. Tracks the last message's
     // content/status, the message-count delta, and userInteracting.
     //
-    // Sticky-stop mode (default):
-    //   - userInteracting === true → never scroll (forever).
-    //   - countChanged → instant scroll (covers session load + new turn).
-    //   - mid-stream → instant scroll.
+    // Rules:
+    //   - userInteracting === true → skip (user is in control).
+    //   - countChanged → scroll to bottom (new turn / session load).
+    //   - mid-stream → scroll to bottom, rAF-throttled.
     //
-    // Legacy mode (ChatPage.LEGACY_AUTOSCROLL === true):
-    //   - userInteracting === true → never scroll (until 500ms release).
-    //   - countChanged → instant scroll.
-    //   - mid-stream + within HOT_ZONE_PX → instant scroll.
-    //   - mid-stream + outside hot zone → no scroll.
-    //   - just released inside hot zone → ease-in-out catch-up,
-    //     with EASE_DURATION_MS lockout against the next chunk.
+    // All scrollTop writes go through scheduleScrollToBottom which
+    // coalesces into one write per animation frame — so a burst of
+    // tokens in the same tick produces a single smooth scroll, not
+    // a stack of synchronous jumps.
     let prevMessageCount = 0;
-    let wasInteracting = false;
-    let smoothLockoutUntil = 0;
     effect(() => {
       const list = this.session.messages();
       const count = list.length;
@@ -194,85 +178,43 @@ export class ChatPage {
       const interacting = this.userInteracting();
       const countChanged = count !== prevMessageCount;
       prevMessageCount = count;
-      const justReleased = wasInteracting && !interacting;
-      wasInteracting = interacting;
 
       if (interacting) return;
 
       const host = this.scrollHost()?.nativeElement;
-      const sentinel = this.scrollSentinel()?.nativeElement;
-      if (!host || !sentinel) return;
+      if (!host) return;
 
-      if (countChanged) {
-        sentinel.scrollIntoView({
-          block: 'end',
-          inline: 'nearest',
-          behavior: 'auto',
-        });
-        return;
+      if (countChanged || this.session.isStreaming()) {
+        this.scheduleScrollToBottom(host);
       }
-
-      if (!this.session.isStreaming()) return;
-
-      if (ChatPage.LEGACY_AUTOSCROLL) {
-        const distance =
-          host.scrollHeight - host.scrollTop - host.clientHeight;
-        if (distance > ChatPage.HOT_ZONE_PX) return;
-
-        if (justReleased) {
-          smoothLockoutUntil = performance.now() + ChatPage.EASE_DURATION_MS;
-          this.easeScrollToBottom(host);
-          return;
-        }
-
-        // Stream chunk. If the ease-in-out release-snap animation is
-        // still running, skip — we don't want an instant scrollTop
-        // write to break the easing. Subsequent chunks pick up as
-        // soon as the lockout expires.
-        if (performance.now() < smoothLockoutUntil) return;
-      }
-
-      sentinel.scrollIntoView({
-        block: 'end',
-        inline: 'nearest',
-        behavior: 'auto',
-      });
     });
   }
 
   /**
-   * Hand-rolled rAF ease-in-out animation from the current scrollTop
-   * to the bottom of the scroll container. We do this instead of
-   * `scrollIntoView({behavior:'smooth'})` because the native smooth
-   * is implementation-defined: in some browsers and in some
-   * scroll-container configurations it falls back to instant.
-   * Cancels any animation already in flight.
+   * Snap-to-bottom write, throttled to once per animation frame.
+   * Sets programmaticScrollUntil briefly so the resulting scroll
+   * event doesn't fire our recheckPosition handler and oscillate.
    */
-  private easeScrollToBottom(host: HTMLElement): void {
-    if (this.easeRafId != null) {
-      cancelAnimationFrame(this.easeRafId);
-      this.easeRafId = null;
-    }
-    const start = host.scrollTop;
-    const target = host.scrollHeight - host.clientHeight;
-    const change = target - start;
-    if (Math.abs(change) < 1) return;
-    const startTime = performance.now();
-    const duration = ChatPage.EASE_DURATION_MS;
-    // Classic cubic ease-in-out: slow start, fast middle, slow end.
-    const ease = (t: number): number =>
-      t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    const step = (now: number): void => {
-      const elapsed = now - startTime;
-      if (elapsed >= duration) {
-        host.scrollTop = target;
-        this.easeRafId = null;
-        return;
-      }
-      host.scrollTop = start + change * ease(elapsed / duration);
-      this.easeRafId = requestAnimationFrame(step);
-    };
-    this.easeRafId = requestAnimationFrame(step);
+  private scheduleScrollToBottom(host: HTMLElement): void {
+    if (this.pendingScrollRaf != null) return;
+    this.pendingScrollRaf = requestAnimationFrame(() => {
+      this.pendingScrollRaf = null;
+      this.programmaticScrollUntil = performance.now() + 50;
+      host.scrollTop = host.scrollHeight - host.clientHeight;
+    });
+  }
+
+  /**
+   * Reads the current distance from the bottom of the scroll
+   * container and flips `userInteracting` accordingly. If the user
+   * is within HOT_ZONE_PX of the bottom they're "following the
+   * stream" and autoscroll re-engages. Outside that, they're
+   * reading history and autoscroll stays off.
+   */
+  private recheckPosition(host: HTMLElement): void {
+    const distance =
+      host.scrollHeight - host.scrollTop - host.clientHeight;
+    this.userInteracting.set(distance > ChatPage.HOT_ZONE_PX);
   }
 
 
@@ -281,14 +223,8 @@ export class ChatPage {
     const hasImages = event.images.length > 0;
     if (!trimmed && !hasImages) return;
     // Sending a new message is an explicit "I'm engaged, show me the
-    // answer" signal — re-arm autoscroll. In sticky-stop mode the
-    // user might have tapped earlier and flipped userInteracting
-    // permanently true; without this reset, the assistant's reply
-    // would arrive below the textarea with no scroll-to-view.
-    if (this.easeRafId != null) {
-      cancelAnimationFrame(this.easeRafId);
-      this.easeRafId = null;
-    }
+    // answer" signal — re-arm autoscroll regardless of where the
+    // viewport was.
     this.userInteracting.set(false);
     if (!this.session.activeId()) {
       try {
