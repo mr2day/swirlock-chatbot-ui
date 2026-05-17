@@ -168,15 +168,41 @@
   opacity: 0.7;
 }
 
-.hint {
+/* Container for the two .hint lines (keyboard hint + version).
+   On wide layouts they share a row with the keyboard hint expanding
+   to push the version to the right edge. When the row narrows past
+   their combined width they wrap and each line centers individually. */
+.hints {
+  flex: 1 1 auto;
   min-width: 0;
-  text-align: right;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+}
+
+.hint {
   font-size: var(--text-xs);
   color: var(--persona-text-muted);
+  min-width: 0;
+}
+
+.hint-keyboard {
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.hint-version {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 @media (max-width: 600px) {
-  .hint {
+  /* On narrow viewports the keyboard hint isn't actionable (no
+     physical keyboard) — drop it and leave the version centered. */
+  .hint-keyboard {
     display: none;
   }
 }

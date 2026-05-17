@@ -2,20 +2,3 @@
   display: block;
   height: 100%;
 }
-
-.app-version {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 11px;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0.01em;
-  color: rgba(160, 160, 160, 0.55);
-  pointer-events: none;
-  user-select: none;
-  z-index: 1;
-  white-space: nowrap;
-  /* Safe-area awareness for iOS / Android gesture bars so the line
-     doesn't tuck behind the system nav. */
-  bottom: max(4px, env(safe-area-inset-bottom, 0px));
-}

@@ -1,7 +1,6 @@
 import { Component, effect, inject } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterOutlet } from '@angular/router';
-import { VERSION } from './core/version';
 import { NativeLifecycleService } from './core/services/native-lifecycle.service';
 import { PersonaService } from './core/services/persona.service';
 
@@ -12,7 +11,6 @@ import { PersonaService } from './core/services/persona.service';
   styleUrl: './app.scss',
 })
 export class App {
-  protected readonly version = VERSION;
   private readonly persona = inject(PersonaService);
   private readonly titleSvc = inject(Title);
   private readonly nativeLifecycle = inject(NativeLifecycleService);

@@ -9,6 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VERSION } from '../../../../core/version';
 
 export interface ComposerImage {
   id: string;
@@ -61,6 +62,8 @@ export class Composer {
 
   readonly send = output<ComposerSendEvent>();
   readonly stop = output<void>();
+
+  protected readonly version = VERSION;
 
   protected readonly text = signal<string>('');
   protected readonly forceThinking = signal<boolean>(false);

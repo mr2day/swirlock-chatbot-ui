@@ -134,3 +134,11 @@
   font-size: 0.95rem;
   line-height: 1.55;
 }
+
+.version-line {
+  margin: 32px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--persona-text-muted);
+  letter-spacing: 0.01em;
+}
