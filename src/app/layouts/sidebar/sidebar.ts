@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { LayoutService } from '../../core/services/layout.service';
+import { LiveUpdateService } from '../../core/services/live-update.service';
 import { SessionService } from '../../core/services/session.service';
 import { AuthService } from '../../core/services/auth.service';
 import { PersonaService } from '../../core/services/persona.service';
@@ -28,7 +29,12 @@ export class Sidebar {
   protected readonly layout = inject(LayoutService);
   protected readonly auth = inject(AuthService);
   protected readonly persona = inject(PersonaService);
+  protected readonly liveUpdate = inject(LiveUpdateService);
   private readonly router = inject(Router);
+
+  protected applyUpdate(): void {
+    void this.liveUpdate.applyUpdate();
+  }
 
   /**
    * Resolves the small avatar shown next to a session row. Falls back

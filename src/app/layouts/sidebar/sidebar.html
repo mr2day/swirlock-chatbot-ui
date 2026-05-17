@@ -7,6 +7,18 @@
     <span>New chat</span>
   </button>
 
+  @if (liveUpdate.updateAvailable()) {
+    <button class="update-available" type="button" (click)="applyUpdate()">
+      <span class="update-icon" aria-hidden="true">↻</span>
+      <span class="update-text">
+        Update available
+        @if (liveUpdate.availableVersion(); as ver) {
+          <span class="update-version">({{ ver }})</span>
+        }
+      </span>
+    </button>
+  }
+
   <nav class="sessions" aria-label="Conversation history">
     @if (session.sessions().length === 0) {
       <div class="empty">No chats yet. Start one above.</div>
