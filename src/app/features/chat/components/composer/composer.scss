@@ -168,18 +168,24 @@
   opacity: 0.7;
 }
 
-/* Container for the two .hint lines (keyboard hint + version).
-   On wide layouts they share a row with the keyboard hint expanding
-   to push the version to the right edge. When the row narrows past
-   their combined width they wrap and each line centers individually. */
-.hints {
+/* Wrapper carrying the container-query context. The hints layout
+   below uses an inline-size container query to switch between row
+   layout (keyboard hint left, version right) and column layout
+   (each centered on its own line) based on actual available width
+   in the row, not on viewport size. */
+.hints-wrap {
+  container-type: inline-size;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* Default layout = column: each line centered. This is what
+   applies when the wrap is narrower than ~640px, i.e. the two
+   texts wouldn't both fit on one row. */
+.hints {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  column-gap: var(--space-3);
   row-gap: 2px;
 }
 
@@ -187,16 +193,30 @@
   font-size: var(--text-xs);
   color: var(--persona-text-muted);
   min-width: 0;
-}
-
-.hint-keyboard {
-  flex: 1 1 auto;
-  text-align: left;
+  text-align: center;
 }
 
 .hint-version {
-  flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* Wide enough for both texts in one row: row layout, hint left,
+   version right. ~640px is the natural breakpoint for the current
+   English strings; if the wording grows, bump this. */
+@container (min-width: 640px) {
+  .hints {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    column-gap: var(--space-3);
+  }
+  .hint-keyboard {
+    flex: 1 1 auto;
+    text-align: left;
+  }
+  .hint-version {
+    flex: 0 0 auto;
+  }
 }
 
 @media (max-width: 600px) {
