@@ -280,6 +280,16 @@ export class ChatPage {
     const trimmed = event.text.trim();
     const hasImages = event.images.length > 0;
     if (!trimmed && !hasImages) return;
+    // Sending a new message is an explicit "I'm engaged, show me the
+    // answer" signal — re-arm autoscroll. In sticky-stop mode the
+    // user might have tapped earlier and flipped userInteracting
+    // permanently true; without this reset, the assistant's reply
+    // would arrive below the textarea with no scroll-to-view.
+    if (this.easeRafId != null) {
+      cancelAnimationFrame(this.easeRafId);
+      this.easeRafId = null;
+    }
+    this.userInteracting.set(false);
     if (!this.session.activeId()) {
       try {
         const id = await this.session.newSession();
