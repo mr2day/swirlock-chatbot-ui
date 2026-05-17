@@ -28,6 +28,16 @@ const config: CapacitorConfig = {
     // home to capgo.app — this deployment is fully self-hosted.
     CapacitorUpdater: {
       autoUpdate: true,
+      // Apply downloaded bundles immediately by reloading the
+      // WebView, instead of waiting for the next cold start. Costs a
+      // mid-session reload flash but gets the new code in front of
+      // the user within seconds of a push — required for the rapid
+      // dev cycle we're on.
+      directUpdate: true,
+      // Give Angular bootstrap a generous window before the plugin
+      // assumes the new bundle crashed and rolls back. Default ~10s
+      // is too tight on cold-start cold devices.
+      appReadyTimeout: 30000,
       updateUrl: 'https://api.gigi-the-robot.com/updates',
       statsUrl: '',
       channelUrl: '',
