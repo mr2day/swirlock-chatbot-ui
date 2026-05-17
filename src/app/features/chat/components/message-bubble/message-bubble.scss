@@ -269,6 +269,32 @@
   margin-bottom: 0;
 }
 
+/* Constrain any descendant that's wider than the bubble so it can't
+   push the page-level layout and produce a horizontal scrollbar on
+   mobile. Tables in particular size to their content by default; we
+   make them block-level so overflow-x can clip + scroll inside the
+   bubble instead of leaking out. */
+.content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.content pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.content img,
+.content video {
+  max-width: 100%;
+  height: auto;
+}
+.content a,
+.content code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .citations {
   margin-top: var(--space-3);
   font-size: var(--text-sm);
