@@ -2,3 +2,19 @@
   display: block;
   height: 100%;
 }
+
+.app-version {
+  position: fixed;
+  right: 8px;
+  bottom: 4px;
+  font-size: 10px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  color: rgba(160, 160, 160, 0.55);
+  pointer-events: none;
+  user-select: none;
+  z-index: 1;
+  /* Safe-area awareness for iOS / Android gesture bars so the line
+     doesn't tuck behind the system nav. */
+  bottom: max(4px, env(safe-area-inset-bottom, 0px));
+}
