@@ -27,10 +27,13 @@ const config: CapacitorConfig = {
     // statsUrl/channelUrl are blanked so the plugin doesn't phone
     // home to capgo.app — this deployment is fully self-hosted.
     CapacitorUpdater: {
-      autoUpdate: true,
-      // Give Angular bootstrap a generous window before the plugin
-      // assumes the new bundle crashed and rolls back. Default ~10s
-      // is too tight on cold-start cold devices.
+      // autoUpdate=false: the plugin will NOT check, download, or
+      // apply bundles on its own. We drive everything manually from
+      // LiveUpdateService so the user is in full control — no silent
+      // first-launch swap. notifyAppReady() in main.ts still applies
+      // (commits whichever bundle is active so the plugin doesn't
+      // roll back the next time the app launches).
+      autoUpdate: false,
       appReadyTimeout: 30000,
       updateUrl: 'https://api.gigi-the-robot.com/updates',
       statsUrl: '',

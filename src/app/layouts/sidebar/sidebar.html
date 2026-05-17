@@ -7,13 +7,25 @@
     <span>New chat</span>
   </button>
 
-  @if (liveUpdate.updateAvailable()) {
-    <button class="update-available" type="button" (click)="applyUpdate()">
+  @if (liveUpdate.native()) {
+    <button
+      class="update-btn"
+      type="button"
+      [class.is-available]="liveUpdate.available()"
+      [disabled]="!liveUpdate.available() || liveUpdate.applying()"
+      (click)="applyUpdate()"
+    >
       <span class="update-icon" aria-hidden="true">↻</span>
       <span class="update-text">
-        Update available
-        @if (liveUpdate.availableVersion(); as ver) {
-          <span class="update-version">({{ ver }})</span>
+        @if (liveUpdate.applying()) {
+          Updating…
+        } @else if (liveUpdate.available()) {
+          Update available
+          @if (liveUpdate.availableVersion(); as ver) {
+            <span class="update-version">({{ ver }})</span>
+          }
+        } @else {
+          You're on the latest version
         }
       </span>
     </button>

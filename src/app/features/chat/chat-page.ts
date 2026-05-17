@@ -47,30 +47,29 @@ export class ChatPage {
   );
 
   /**
-   * Position-driven autoscroll, hot-zone based.
+   * Hot-head autoscroll.
    *
    * Master switch: `userInteracting`. While true, the autoscroll
    * effect leaves the scroll position alone.
    *
-   * Two triggers flip it true:
-   *   - Pointer/wheel input while the user is actively dragging
-   *     (pointerActive flag below).
-   *   - Scroll position more than HOT_ZONE_PX from the bottom (user
-   *     has scrolled up to read history).
+   * Flip-to-true triggers (pause):
+   *   - Pointer/wheel input while the user is actively dragging.
+   *   - On scroll/release, the bottom sentinel is NOT in the
+   *     visible part of the scroll container (user is reading
+   *     above the live tail).
    *
-   * Two triggers flip it false:
-   *   - Pointer release while scroll position is within HOT_ZONE_PX
-   *     of the bottom (user let go near the live tail → autoscroll
-   *     resumes for next chunk).
+   * Flip-to-false triggers (resume):
+   *   - On scroll/release, the bottom sentinel IS visible (user
+   *     scrolled back into the "hot head" — the strip where new
+   *     tokens are appearing).
    *   - send() (user submitted a new turn → re-arm regardless).
+   *
+   * "Hot head" is the strict bottom of the message list — a 1px
+   * sentinel right after the last message. Autoscroll only resumes
+   * when the user has scrolled far enough that this sentinel is
+   * within the scroll container's viewport. There is no fudge zone.
    */
   protected readonly userInteracting = signal<boolean>(false);
-
-  /** Distance-from-bottom (in px) below which we treat the user as
-   *  "following the stream" and autoscroll re-engages on release.
-   *  Above this distance, the user is reading history and we leave
-   *  them alone. */
-  private static readonly HOT_ZONE_PX = 200;
 
   /** True while a pointer is down on the scroll layer. Suppresses
    *  the scroll-event-based position recheck so we don't fight the
@@ -112,12 +111,13 @@ export class ChatPage {
     // Pointer down/wheel marks the user as actively interacting:
     // autoscroll pauses immediately so we don't fight the drag.
     //
-    // Pointer up/cancel/leave reassesses based on scroll position:
-    //   - if the user let go inside the hot zone (within
-    //     HOT_ZONE_PX of the bottom), they're following the live
-    //     tail — autoscroll resumes on the next chunk.
-    //   - if they let go outside the hot zone, they're reading
-    //     older content — autoscroll stays paused.
+    // Pointer up/cancel/leave reassesses based on whether the bottom
+    // sentinel (the "hot head" — strict bottom of the message list)
+    // is visible inside the scroll container:
+    //   - sentinel visible → user is at the live tail, autoscroll
+    //     resumes on the next chunk.
+    //   - sentinel offscreen → user is reading history, autoscroll
+    //     stays paused.
     //
     // The scroll event itself drives the same recheck during wheel
     // and trackpad scrolls (which have no explicit "release"). We
@@ -205,16 +205,29 @@ export class ChatPage {
   }
 
   /**
-   * Reads the current distance from the bottom of the scroll
-   * container and flips `userInteracting` accordingly. If the user
-   * is within HOT_ZONE_PX of the bottom they're "following the
-   * stream" and autoscroll re-engages. Outside that, they're
-   * reading history and autoscroll stays off.
+   * Flips `userInteracting` based on whether the hot-head sentinel
+   * is visible inside the scroll container.
+   *
+   * Sentinel-in-viewport === the user has scrolled to the strip
+   * where new tokens are appearing. Anywhere else === reading
+   * history.
+   *
+   * If the sentinel isn't in the DOM (empty greeting state) we
+   * default to "follow" so a stray pointer event in that state
+   * doesn't strand autoscroll off forever.
    */
   private recheckPosition(host: HTMLElement): void {
-    const distance =
-      host.scrollHeight - host.scrollTop - host.clientHeight;
-    this.userInteracting.set(distance > ChatPage.HOT_ZONE_PX);
+    const sentinel = this.scrollSentinel()?.nativeElement;
+    if (!sentinel) {
+      this.userInteracting.set(false);
+      return;
+    }
+    const hostRect = host.getBoundingClientRect();
+    const sentinelRect = sentinel.getBoundingClientRect();
+    const visible =
+      sentinelRect.bottom > hostRect.top &&
+      sentinelRect.top < hostRect.bottom;
+    this.userInteracting.set(!visible);
   }
 
 
