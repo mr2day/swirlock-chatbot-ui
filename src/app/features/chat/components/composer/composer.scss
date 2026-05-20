@@ -136,6 +136,30 @@
   background: var(--persona-surface);
 }
 
+/* Voice-language picker: a native <select> rendered as a compact
+   chip sitting between the attach button and the big Listen
+   button. The native dropdown is fine on Android and avoids
+   building a custom modal. The user picks their spoken language
+   here BEFORE pressing Listen; Android's SpeechRecognizer needs
+   the language tag up front. */
+.lang-select {
+  flex: 0 0 auto;
+  min-width: 64px;
+  height: 36px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--persona-border);
+  background: var(--persona-surface);
+  color: var(--persona-text-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.lang-select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* The "Listen" button is deliberately bigger and more visible than
    the attach/send icons so the user can tap it without precision —
    classical press-to-talk affordance. */

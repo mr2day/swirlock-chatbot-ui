@@ -11,7 +11,10 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { VERSION } from '../../../../core/version';
-import { VoiceService } from '../../../../core/services/voice.service';
+import {
+  VOICE_LANGUAGE_OPTIONS,
+  VoiceService,
+} from '../../../../core/services/voice.service';
 
 export interface ComposerImage {
   id: string;
@@ -72,6 +75,11 @@ export class Composer {
 
   protected readonly version = VERSION;
   protected readonly voice = inject(VoiceService);
+  protected readonly languageOptions = VOICE_LANGUAGE_OPTIONS;
+
+  protected onLanguageChange(lang: string): void {
+    this.voice.setLanguage(lang);
+  }
 
   protected readonly text = signal<string>('');
   protected readonly forceThinking = signal<boolean>(false);

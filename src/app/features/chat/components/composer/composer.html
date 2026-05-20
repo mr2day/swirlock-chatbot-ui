@@ -61,6 +61,18 @@
     </button>
 
     @if (voice.native()) {
+      <select
+        class="lang-select"
+        [ngModel]="voice.sttLang()"
+        (ngModelChange)="onLanguageChange($event)"
+        [disabled]="streaming() || voice.state() === 'recording' || voice.state() === 'speaking'"
+        aria-label="Voice language"
+        title="Voice language — pick the language you'll speak before tapping the mic"
+      >
+        @for (lang of languageOptions; track lang.code) {
+          <option [value]="lang.code">{{ lang.code.slice(0, 2).toUpperCase() }} · {{ lang.label }}</option>
+        }
+      </select>
       <button
         type="button"
         class="btn btn-listen"

@@ -45,6 +45,56 @@ export type VoiceState = 'idle' | 'recording' | 'speaking';
  */
 const DEFAULT_LANG = 'en-US';
 
+/** localStorage key for the user's chosen STT language. */
+const STT_LANG_STORAGE_KEY = 'voice.sttLang';
+
+/** BCP 47 locale + display label for each language the composer's
+ *  picker offers the user. Covers the European set Nick called out
+ *  (Polish, Portuguese, Estonian, Basque, Spanish, French, English,
+ *  Greek, Italian, Romanian, …) plus the common ones. The composer
+ *  imports this list to render the dropdown; the VoiceService
+ *  accepts any BCP 47 string so users with niche locales can still
+ *  set it programmatically. */
+export const VOICE_LANGUAGE_OPTIONS: ReadonlyArray<{
+  code: string;
+  label: string;
+}> = [
+  { code: 'en-US', label: 'English' },
+  { code: 'ro-RO', label: 'Română' },
+  { code: 'es-ES', label: 'Español' },
+  { code: 'fr-FR', label: 'Français' },
+  { code: 'it-IT', label: 'Italiano' },
+  { code: 'de-DE', label: 'Deutsch' },
+  { code: 'pt-PT', label: 'Português' },
+  { code: 'pl-PL', label: 'Polski' },
+  { code: 'el-GR', label: 'Ελληνικά' },
+  { code: 'nl-NL', label: 'Nederlands' },
+  { code: 'sv-SE', label: 'Svenska' },
+  { code: 'da-DK', label: 'Dansk' },
+  { code: 'nb-NO', label: 'Norsk' },
+  { code: 'fi-FI', label: 'Suomi' },
+  { code: 'cs-CZ', label: 'Čeština' },
+  { code: 'sk-SK', label: 'Slovenčina' },
+  { code: 'hu-HU', label: 'Magyar' },
+  { code: 'bg-BG', label: 'Български' },
+  { code: 'hr-HR', label: 'Hrvatski' },
+  { code: 'sr-RS', label: 'Српски' },
+  { code: 'sl-SI', label: 'Slovenščina' },
+  { code: 'uk-UA', label: 'Українська' },
+  { code: 'ru-RU', label: 'Русский' },
+  { code: 'tr-TR', label: 'Türkçe' },
+  { code: 'lt-LT', label: 'Lietuvių' },
+  { code: 'lv-LV', label: 'Latviešu' },
+  { code: 'et-EE', label: 'Eesti' },
+  { code: 'ca-ES', label: 'Català' },
+  { code: 'eu-ES', label: 'Euskara' },
+  { code: 'gl-ES', label: 'Galego' },
+  { code: 'cy-GB', label: 'Cymraeg' },
+  { code: 'ga-IE', label: 'Gaeilge' },
+  { code: 'is-IS', label: 'Íslenska' },
+  { code: 'mt-MT', label: 'Malti' },
+];
+
 const SENTENCE_BOUNDARY = /[.!?\n]\s+/;
 /** Minimum chars a sentence must have before we send it to the TTS
  *  engine. Used to avoid dispatching single-character utterances on
@@ -234,6 +284,10 @@ interface TextToSpeechLike {
 
 @Injectable({ providedIn: 'root' })
 export class VoiceService {
+  constructor() {
+    this.loadPersistedLanguage();
+  }
+
   readonly native = signal<boolean>(Capacitor.isNativePlatform());
   readonly state = signal<VoiceState>('idle');
   readonly liveTranscript = signal<string>('');
@@ -264,11 +318,13 @@ export class VoiceService {
    *  response (the voice cuts to a different variant or pitches
    *  weirdly between sentences). */
   private speakChain: Promise<unknown> = Promise.resolve();
-  /** Language to use when next startRecording fires. Set by
-   *  noteUserText whenever the user types or sends. Android can't
-   *  change the recognizer language mid-session, so this only
-   *  affects future startRecording calls. */
-  private sttLang: string = DEFAULT_LANG;
+  /** Language used when the next startRecording fires. Persisted
+   *  to localStorage so the user's pick survives reloads. Updated
+   *  by noteUserText (franc-detected from typed text) or by the
+   *  composer's manual language picker (setLanguage). Android
+   *  can't change recognizer language mid-session, so this only
+   *  takes effect on the next mic press. */
+  readonly sttLang = signal<string>(DEFAULT_LANG);
   /** Language locked in for the current TTS response. Detected from
    *  the first 80 chars of the response stream and reused for every
    *  sentence chunk so we don't switch voices mid-paragraph. */
@@ -348,7 +404,7 @@ export class VoiceService {
       // is whatever was last detected from the user's text (set via
       // noteUserText) or DEFAULT_LANG for a fresh session.
       void stt.start({
-        language: this.sttLang,
+        language: this.sttLang(),
         maxResults: 1,
         partialResults: true,
         popup: false,
@@ -449,11 +505,51 @@ export class VoiceService {
   }
 
   /** Composer calls this whenever the user types text or sends a
-   *  message. We update the language to use on the next mic activation
-   *  so the recognizer matches the conversation's current language. */
+   *  message. We run franc on the text directly (aggressive — not
+   *  the TTS-friendly detectLang with its short-text fallback) and
+   *  update sttLang when franc returns a confident verdict. Even a
+   *  ~15-char message in a different language can switch the
+   *  recognizer, so the user doesn't have to type a full paragraph
+   *  to get STT to follow. */
   noteUserText(text: string): void {
-    if (!text || text.length < 4) return;
-    this.sttLang = detectLang(text);
+    if (!text || text.trim().length < 5) return;
+    try {
+      const iso = franc(text, { minLength: 5 });
+      if (iso === 'und') return;
+      const mapped = ISO_639_3_TO_BCP_47[iso];
+      if (mapped && mapped !== this.sttLang()) {
+        this.setLanguage(mapped);
+        console.log(
+          `[voice] stt-lang auto-switched to ${mapped} from typed text`,
+        );
+      }
+    } catch {
+      /* keep current */
+    }
+  }
+
+  /** Manual language override from the composer's picker. Persisted
+   *  so the user's choice survives app reloads. */
+  setLanguage(lang: string): void {
+    if (!lang || lang === this.sttLang()) return;
+    this.sttLang.set(lang);
+    try {
+      localStorage.setItem(STT_LANG_STORAGE_KEY, lang);
+    } catch {
+      /* localStorage unavailable; in-memory only */
+    }
+  }
+
+  /** Reads the persisted STT language at construction time so the
+   *  user's last choice survives reloads. Called from the
+   *  constructor; safe to call repeatedly. */
+  private loadPersistedLanguage(): void {
+    try {
+      const saved = localStorage.getItem(STT_LANG_STORAGE_KEY);
+      if (saved) this.sttLang.set(saved);
+    } catch {
+      /* no-op */
+    }
   }
 
   /** Streaming-TTS chunk. Composer calls this for every assistant
@@ -477,7 +573,7 @@ export class VoiceService {
    *  reliable than a short-text franc guess. */
   private async lockTtsLang(): Promise<void> {
     if (this.ttsLangLocked) return;
-    this.ttsLang = detectLang(this.ttsBuffer, this.sttLang);
+    this.ttsLang = detectLang(this.ttsBuffer, this.sttLang());
     this.ttsVoiceIndex = await this.pickVoiceIndex(this.ttsLang);
     this.ttsLangLocked = true;
     console.log(
