@@ -21,6 +21,15 @@ echo "[deploy] Reloading PM2 process from ecosystem file..."
 pm2 startOrReload ecosystem.config.cjs --update-env --silent
 pm2 save --silent
 
+# Publish the APK + notes to the user's Google Drive Claude folder.
+# Best-effort: warns and continues if Drive is offline. The APK at
+# android/app/build/outputs/apk/debug/app-debug.apk MUST already exist
+# (run `npx cap sync android && (cd android && ./gradlew assembleDebug)`
+# before deploy.sh if you also want a fresh APK in Drive).
+echo "[deploy] Publishing APK + notes to Google Drive..."
+node scripts/publish-to-drive.mjs
+
 echo "[deploy] Done."
 echo "[deploy]   https://gigi-the-robot.com/        serves the new web build."
 echo "[deploy]   https://api.gigi-the-robot.com/updates/  exposes the new bundle to APK installs."
+echo "[deploy]   G:\\My Drive\\Claude\\                       holds the latest APK + notes."
