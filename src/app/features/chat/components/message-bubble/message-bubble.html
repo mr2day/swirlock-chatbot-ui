@@ -133,10 +133,6 @@
 
     @if (message().content.length > 0) {
       <div class="content prose" [innerHTML]="contentHtml()"></div>
-    } @else if (isStreamingActive() && !hasThinking()) {
-      <div class="typing" aria-hidden="true">
-        <span></span><span></span><span></span>
-      </div>
     }
 
     @if (message().citations?.length) {

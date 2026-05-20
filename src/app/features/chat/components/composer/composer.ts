@@ -182,15 +182,26 @@ export class Composer {
     });
     this.text.set('');
     this.attachments.set([]);
-    // Put the cursor back in the textarea. We use `setTimeout(0)`
-    // rather than `queueMicrotask` because emitting `send` flips the
-    // parent's `streaming()` signal, which triggers an Angular
-    // re-render that swaps the send button for the stop button.
-    // That DOM churn happens AFTER microtasks but BEFORE the next
-    // task, so a microtask-scheduled focus gets knocked off; a
-    // task-scheduled focus lands after the render has settled and
-    // sticks.
-    setTimeout(() => this.textarea()?.nativeElement?.focus(), 0);
+    const el = this.textarea()?.nativeElement;
+    // On touch devices (mobile, tablet) keep focus off the textarea
+    // after Send so the soft keyboard collapses and the user sees the
+    // reply. On desktop, restore focus so the user can immediately
+    // type the next message. `setTimeout(0)` rather than
+    // `queueMicrotask` because emitting `send` flips the parent's
+    // streaming() signal, which triggers an Angular re-render that
+    // swaps the send button for the stop button — that DOM churn
+    // happens AFTER microtasks but BEFORE the next task, so a
+    // microtask-scheduled focus gets knocked off, while a
+    // task-scheduled focus lands after the render has settled.
+    const isTouch =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(pointer: coarse)').matches;
+    if (isTouch) {
+      el?.blur();
+    } else {
+      setTimeout(() => el?.focus(), 0);
+    }
   }
 
   protected onStop(): void {

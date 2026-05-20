@@ -65,6 +65,18 @@ export class MessageBubble {
   protected readonly statusLabel = computed<string | null>(() => {
     const m = this.message();
     if (m.role !== 'assistant') return null;
+    // Once actual content is streaming in, suppress the generic
+    // "Writing answer..." label — the visible text says it.
+    // Errors and cancellations are post-content states and still
+    // need their label, so handle those first.
+    if (m.status === 'cancelled') return 'Stopped';
+    if (m.status === 'error') return m.errorMessage ?? 'Something went wrong';
+    if (m.content.length > 0) return null;
+    // While any more-specific label (agentStatus / retrievalStatus)
+    // is showing, suppress the generic one — they sit right next to
+    // each other in the bubble and the specific label is the
+    // useful one.
+    if (m.agentStatus || m.retrievalStatus) return null;
     switch (m.status) {
       case 'pending':
       case 'classifying':
@@ -72,17 +84,13 @@ export class MessageBubble {
       case 'queued':
         return 'Queued...';
       case 'retrieving':
-        return null;
+        return 'Searching the web...';
       case 'awaiting_location':
-        return null;
+        return 'Waiting for your location...';
       case 'thinking':
         return 'Thinking...';
       case 'streaming':
-        return null;
-      case 'cancelled':
-        return 'Stopped';
-      case 'error':
-        return m.errorMessage ?? 'Something went wrong';
+        return 'Writing answer...';
       default:
         return null;
     }

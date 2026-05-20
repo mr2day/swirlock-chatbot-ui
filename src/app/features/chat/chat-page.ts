@@ -127,9 +127,17 @@ export class ChatPage {
       const host = this.scrollHost()?.nativeElement;
       if (!host) return;
 
-      const onPointerDown = () => {
+      // Mark the user as interacting AND kill any in-flight programmatic
+      // scroll. Without the cancel, a rAF scheduled before the touch
+      // would still write scrollTop after the touch, and the user's
+      // pause attempt would visibly fail for one more frame. On Android
+      // the browser can hold pointerdown for ~100ms while it decides
+      // if the touch is a scroll — `touchstart` fires sooner and gives
+      // us the same intent earlier.
+      const onPauseInput = () => {
         this.pointerActive = true;
         this.userInteracting.set(true);
+        this.cancelScheduledScroll();
       };
       const onPointerEnd = () => {
         this.pointerActive = false;
@@ -141,16 +149,22 @@ export class ChatPage {
         this.recheckPosition(host);
       };
 
-      host.addEventListener('pointerdown', onPointerDown, { passive: true });
+      host.addEventListener('pointerdown', onPauseInput, { passive: true });
+      host.addEventListener('touchstart', onPauseInput, { passive: true });
       host.addEventListener('pointerup', onPointerEnd, { passive: true });
       host.addEventListener('pointercancel', onPointerEnd, { passive: true });
       host.addEventListener('pointerleave', onPointerEnd, { passive: true });
+      host.addEventListener('touchend', onPointerEnd, { passive: true });
+      host.addEventListener('touchcancel', onPointerEnd, { passive: true });
       host.addEventListener('scroll', onScroll, { passive: true });
       onCleanup(() => {
-        host.removeEventListener('pointerdown', onPointerDown);
+        host.removeEventListener('pointerdown', onPauseInput);
+        host.removeEventListener('touchstart', onPauseInput);
         host.removeEventListener('pointerup', onPointerEnd);
         host.removeEventListener('pointercancel', onPointerEnd);
         host.removeEventListener('pointerleave', onPointerEnd);
+        host.removeEventListener('touchend', onPointerEnd);
+        host.removeEventListener('touchcancel', onPointerEnd);
         host.removeEventListener('scroll', onScroll);
       });
     });
@@ -192,6 +206,10 @@ export class ChatPage {
 
   /**
    * Snap-to-bottom write, throttled to once per animation frame.
+   * Re-checks `userInteracting` inside the rAF — without this guard,
+   * a chunk that arrived and scheduled this rAF *before* the user
+   * touched the screen would still write scrollTop one more frame
+   * after the touch, making touch-to-pause look broken on Android.
    * Sets programmaticScrollUntil briefly so the resulting scroll
    * event doesn't fire our recheckPosition handler and oscillate.
    */
@@ -199,9 +217,17 @@ export class ChatPage {
     if (this.pendingScrollRaf != null) return;
     this.pendingScrollRaf = requestAnimationFrame(() => {
       this.pendingScrollRaf = null;
+      if (this.userInteracting()) return;
       this.programmaticScrollUntil = performance.now() + 50;
       host.scrollTop = host.scrollHeight - host.clientHeight;
     });
+  }
+
+  private cancelScheduledScroll(): void {
+    if (this.pendingScrollRaf != null) {
+      cancelAnimationFrame(this.pendingScrollRaf);
+      this.pendingScrollRaf = null;
+    }
   }
 
   /**
