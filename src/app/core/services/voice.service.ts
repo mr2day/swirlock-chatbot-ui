@@ -2,49 +2,42 @@ import { Injectable, signal } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 
 /**
- * Voice flow for the Android APK. Native-only — no-op on web.
- *
- * Wraps two Capacitor Community plugins:
- *   - @capacitor-community/speech-recognition (Android's SpeechRecognizer)
- *   - @capacitor-community/text-to-speech (Android's TextToSpeech)
+ * Simplified voice flow — classical press-to-talk.
  *
  * State machine:
  *
- *   off ──tap mic──▶ listening ──"show preview"──▶ preview
- *    ▲                  │                            │
- *    │           assistant reply                    "send"
- *    │                  ▼                            │
- *    └────────── speaking ◀───────────────────────── ▼
- *                                                (composer.send)
+ *   idle ──tap button──▶ recording ──silence auto-stop──▶ (submit) ──reply streams──▶ speaking
+ *    ▲                       │                                                          │
+ *    │                  tap to cancel                                                  TTS done
+ *    └───────────────────────┴──────────────────────────────────────────────────────────┘
  *
- *   - off: voice mode disabled. Composer behaves as a text-only chat.
- *   - listening: mic on, partialResults stream into `liveTranscript`,
- *     regex-watched for the preview wake-word.
- *   - preview: previewText is committed; mic stays on but only
- *     watches for the send wake-word, ignoring anything else so the
- *     user can edit/think aloud without firing a send.
- *   - speaking: TTS is playing the assistant reply; mic is off
- *     (would pick up Gigi's own voice otherwise). When TTS finishes
- *     we auto-flip back to 'listening' so a vocal conversation
- *     doesn't need a tap between every turn.
+ *   - idle: nothing happening. Big "Listen" button is visible and
+ *     enabled.
+ *   - recording: mic on, partialResults stream into liveTranscript
+ *     so the user sees that the system hears them. Android's
+ *     SpeechRecognizer auto-stops on silence; we then bump the
+ *     `transcriptReady` counter and the composer submits the
+ *     latest partial as the user's message. The user can also tap
+ *     the button to cancel mid-recording (no submit).
+ *   - speaking: assistant reply is streaming; we sentence-chunk
+ *     the chunks to TextToSpeech.speak (QueueStrategy.Add) so
+ *     audio plays in parallel with the text appearing in the
+ *     bubble. When all chunks finish, return to idle. User must
+ *     tap the button again to record the next turn — no auto-
+ *     restart of the mic.
  *
- * SpeechRecognizer auto-stops after 5-10s of silence. The
- * listeningState='stopped' event triggers an automatic restart as
- * long as the state is still 'listening' or 'preview'.
+ * Web build is a no-op: `native` is false; the composer's button
+ * is conditional on native and doesn't render.
+ *
+ * Earlier (b123) version had wake-word commit + preview state.
+ * Removed at the user's request: "implement it in a classical way".
  */
 
-export type VoiceState = 'off' | 'listening' | 'preview' | 'speaking';
+export type VoiceState = 'idle' | 'recording' | 'speaking';
 
 const STT_LANG = 'ro-RO';
 const TTS_LANG = 'ro-RO';
 
-/** Bilingual wake-words. Substring match on the most recent partial
- *  result, case-insensitive. Kept reasonably long to avoid firing
- *  from incidental mid-sentence occurrence. */
-const PREVIEW_WAKE = /\b(show preview|arat[aă] previzualizare|previzualizare)\b/iu;
-const SEND_WAKE = /\b(send message|send it|trimite mesajul|trimite)\b/iu;
-
-/** Sentence-ender for streaming TTS chunking. */
 const SENTENCE_BOUNDARY = /[.!?\n]\s+/;
 const MIN_CHUNK_CHARS = 20;
 
@@ -57,7 +50,6 @@ interface SpeechRecognitionLike {
     popup?: boolean;
   }): Promise<unknown>;
   stop(): Promise<void>;
-  isListening(): Promise<{ listening: boolean }>;
   checkPermissions(): Promise<{ speechRecognition: string }>;
   requestPermissions(): Promise<{ speechRecognition: string }>;
   addListener(
@@ -77,34 +69,34 @@ interface TextToSpeechLike {
     queueStrategy?: number;
   }): Promise<void>;
   stop(): Promise<void>;
-  isLanguageSupported(opts: { lang: string }): Promise<{ supported: boolean }>;
 }
 
 @Injectable({ providedIn: 'root' })
 export class VoiceService {
   readonly native = signal<boolean>(Capacitor.isNativePlatform());
-  readonly state = signal<VoiceState>('off');
+  readonly state = signal<VoiceState>('idle');
   readonly liveTranscript = signal<string>('');
-  readonly previewText = signal<string>('');
   readonly error = signal<string | null>(null);
 
-  /** Set by the consumer (Composer) when the preview wake-word fires.
-   *  Composer reads `previewText` and pushes it into the textarea. */
-  readonly previewReady = signal<number>(0);
-  /** Bumped when the "send" wake-word fires while in preview state.
-   *  Composer watches this counter and submits when it changes. */
-  readonly sendRequested = signal<number>(0);
+  /** Bumped each time silence-auto-stop produced a non-empty
+   *  transcript ready to submit. Composer watches this counter and
+   *  reads `lastTranscript` once per increment. */
+  readonly transcriptReady = signal<number>(0);
+
+  private _lastTranscript = '';
+  get lastTranscript(): string {
+    return this._lastTranscript;
+  }
 
   private stt: SpeechRecognitionLike | null = null;
   private tts: TextToSpeechLike | null = null;
   private partialListener: { remove: () => void } | null = null;
-  private listeningListener: { remove: () => void } | null = null;
+  private stateListener: { remove: () => void } | null = null;
+  private currentPartial = '';
   private ttsBuffer = '';
   private activeSpeakCount = 0;
-  private streamDone = false;
 
-  /** Lazy import of the plugins. Returns false on web (plugins not
-   *  bundled) so callers can no-op silently. */
+  /** Lazy plugin import. Returns false on web. */
   private async ensurePlugins(): Promise<boolean> {
     if (!this.native()) return false;
     if (this.stt && this.tts) return true;
@@ -121,19 +113,27 @@ export class VoiceService {
     }
   }
 
-  /** User-facing toggle. Tapping the mic in the composer calls this.
-   *  off → listening (after permission grant). Any other state → off. */
+  /** Single user-facing toggle. Tap the big mic button → calls this.
+   *
+   *  - idle → start recording (after permission grant).
+   *  - recording → cancel (no submit).
+   *  - speaking → stop TTS.
+   */
   async toggle(): Promise<void> {
-    if (this.state() === 'off') {
-      await this.startListening();
-    } else {
-      await this.shutdown();
+    switch (this.state()) {
+      case 'idle':
+        await this.startRecording();
+        break;
+      case 'recording':
+        await this.cancelRecording();
+        break;
+      case 'speaking':
+        await this.stopSpeaking();
+        break;
     }
   }
 
-  /** Permission check + start. Idempotent — safe to call from
-   *  multiple code paths. */
-  private async startListening(): Promise<void> {
+  private async startRecording(): Promise<void> {
     if (!(await this.ensurePlugins())) return;
     const stt = this.stt!;
     try {
@@ -151,116 +151,101 @@ export class VoiceService {
         return;
       }
       await this.attachListeners();
-      this.error.set(null);
+      this.currentPartial = '';
       this.liveTranscript.set('');
-      this.previewText.set('');
-      this.state.set('listening');
-      await this.startUnderlyingRecognizer();
-    } catch (err) {
-      console.error('[voice] startListening failed', err);
-      this.error.set(this.errorMessage(err));
-      this.state.set('off');
-    }
-  }
-
-  /** Kicks off the underlying SpeechRecognizer session. The plugin's
-   *  session ends after ~5-10s of silence; the listeningState
-   *  listener restarts us if state is still active. */
-  private async startUnderlyingRecognizer(): Promise<void> {
-    if (!this.stt) return;
-    try {
-      void this.stt.start({
+      this.error.set(null);
+      this.state.set('recording');
+      // Fire-and-forget. The Android SpeechRecognizer auto-stops on
+      // silence; the listeningState='stopped' listener will then
+      // finalize the transcript and bump transcriptReady.
+      void stt.start({
         language: STT_LANG,
         maxResults: 1,
         partialResults: true,
         popup: false,
       });
     } catch (err) {
-      console.error('[voice] underlying start failed', err);
+      console.error('[voice] startRecording failed', err);
+      this.error.set(this.errorMessage(err));
+      this.state.set('idle');
     }
   }
 
-  private async attachListeners(): Promise<void> {
+  /** User-initiated cancel — discard the transcript, no submit. */
+  private async cancelRecording(): Promise<void> {
     if (!this.stt) return;
-    if (this.partialListener && this.listeningListener) return;
-    this.partialListener = await this.stt.addListener(
-      'partialResults',
-      (data) => this.onPartial(data.matches ?? []),
-    );
-    this.listeningListener = await this.stt.addListener(
-      'listeningState',
-      (data) => this.onListeningState(data.status ?? ''),
-    );
-  }
-
-  private async detachListeners(): Promise<void> {
-    if (!this.stt) return;
-    await this.stt.removeAllListeners();
-    this.partialListener = null;
-    this.listeningListener = null;
-  }
-
-  private onPartial(matches: string[]): void {
-    const text = (matches[0] ?? '').trim();
-    if (!text) return;
-
-    if (this.state() === 'listening') {
-      this.liveTranscript.set(text);
-      if (PREVIEW_WAKE.test(text)) {
-        // Strip the wake-phrase so the previewed text doesn't end
-        // with "show preview"; everything before the match is the
-        // user's message.
-        const trimmed = text.replace(PREVIEW_WAKE, '').replace(/\s+/g, ' ').trim();
-        this.previewText.set(trimmed);
-        this.previewReady.update((n) => n + 1);
-        this.state.set('preview');
-        // Mic stays on, but onPartial below ignores everything that
-        // is not the send wake-phrase.
-      }
-      return;
-    }
-
-    if (this.state() === 'preview') {
-      if (SEND_WAKE.test(text)) {
-        this.sendRequested.update((n) => n + 1);
-        // After fire-and-forget, the composer flips state via
-        // beforeSpeakReply when the assistant starts answering, OR
-        // we just go back to listening for the next turn if the
-        // composer didn't pick this up.
-      }
-    }
-  }
-
-  private onListeningState(status: string): void {
-    if (status !== 'stopped') return;
-    // Auto-restart if we're still in an active state — the plugin's
-    // session ends after silence; we silently respawn it.
-    if (this.state() === 'listening' || this.state() === 'preview') {
-      void this.startUnderlyingRecognizer();
-    }
-  }
-
-  /** Called by the composer right before it submits a turn that came
-   *  from voice (whether via the "send" wake-word or a manual click
-   *  while voice mode was on). Stops the mic so it doesn't catch
-   *  Gigi's TTS reply, and pre-emptively flips state to 'speaking'. */
-  async beforeSpeakReply(): Promise<void> {
-    if (this.state() === 'off') return;
-    if (!this.stt) return;
+    // Set a flag the listeningState listener can read to know this
+    // was a manual cancel, not a natural auto-stop. We use the state
+    // transition itself: flipping to 'idle' before stop() is called
+    // tells onListeningState to skip the submit branch.
+    this.state.set('idle');
+    this.currentPartial = '';
+    this.liveTranscript.set('');
     try {
       await this.stt.stop();
     } catch {
       /* harmless */
     }
-    this.state.set('speaking');
-    this.ttsBuffer = '';
-    this.activeSpeakCount = 0;
-    this.streamDone = false;
   }
 
-  /** Streaming-TTS chunk. Composer calls this on every chunk the
-   *  assistant emits. We accumulate until a sentence boundary +
-   *  minimum length, then flush to the TTS queue. */
+  private async attachListeners(): Promise<void> {
+    if (!this.stt) return;
+    if (this.partialListener && this.stateListener) return;
+    this.partialListener = await this.stt.addListener(
+      'partialResults',
+      (data) => this.onPartial(data.matches ?? []),
+    );
+    this.stateListener = await this.stt.addListener(
+      'listeningState',
+      (data) => this.onListeningState(data.status ?? ''),
+    );
+  }
+
+  private onPartial(matches: string[]): void {
+    if (this.state() !== 'recording') return;
+    const text = matches[0]?.trim() ?? '';
+    this.currentPartial = text;
+    this.liveTranscript.set(text);
+  }
+
+  /** Silence-auto-stop fired. If we're still in 'recording' state,
+   *  the latest partial is the user's final utterance — bump
+   *  transcriptReady so the composer can submit. If state is
+   *  already 'idle' (because cancelRecording was called) we drop
+   *  the transcript silently. */
+  private onListeningState(status: string): void {
+    if (status !== 'stopped') return;
+    if (this.state() !== 'recording') return;
+    const text = this.currentPartial.trim();
+    this.currentPartial = '';
+    this.liveTranscript.set('');
+    this.state.set('idle');
+    if (text) {
+      this._lastTranscript = text;
+      this.transcriptReady.update((n) => n + 1);
+    }
+  }
+
+  /** Called by the composer right before submitting a turn that came
+   *  out of voice mode. Prepares the TTS pipeline; the chat-page
+   *  feeds chunks into speakChunk while the assistant streams. */
+  async beforeSpeakReply(): Promise<void> {
+    if (!this.tts) return;
+    // If recording was somehow still active, stop it cleanly.
+    if (this.state() === 'recording' && this.stt) {
+      try {
+        await this.stt.stop();
+      } catch {
+        /* */
+      }
+    }
+    this.ttsBuffer = '';
+    this.activeSpeakCount = 0;
+    this.state.set('speaking');
+  }
+
+  /** Streaming-TTS chunk. Composer calls this for every assistant
+   *  chunk while state is 'speaking'. Sentence-buffer + queue. */
   async speakChunk(chunk: string): Promise<void> {
     if (this.state() !== 'speaking') return;
     if (!this.tts) return;
@@ -268,22 +253,30 @@ export class VoiceService {
     await this.drainSentences(false);
   }
 
-  /** End of stream: flush any remaining buffer to TTS, await all
-   *  queued speech, then transition back to 'listening'. */
+  /** End of stream: flush any remaining buffer, await all queued
+   *  speech, then return to 'idle'. User taps the button to record
+   *  the next turn — no auto-restart. */
   async finalizeReply(): Promise<void> {
     if (this.state() !== 'speaking') return;
-    this.streamDone = true;
     if (!this.tts) return;
     await this.drainSentences(true);
-    // Wait for all in-flight speak() promises to resolve.
     while (this.activeSpeakCount > 0) {
       await new Promise((r) => setTimeout(r, 100));
     }
-    // Back to listening for the next turn.
-    this.state.set('listening');
-    this.liveTranscript.set('');
-    this.previewText.set('');
-    await this.startUnderlyingRecognizer();
+    this.state.set('idle');
+  }
+
+  /** User tapped the mic while TTS was playing — stop the queue. */
+  private async stopSpeaking(): Promise<void> {
+    if (!this.tts) return;
+    try {
+      await this.tts.stop();
+    } catch {
+      /* */
+    }
+    this.ttsBuffer = '';
+    this.activeSpeakCount = 0;
+    this.state.set('idle');
   }
 
   private async drainSentences(forceFlush: boolean): Promise<void> {
@@ -301,7 +294,6 @@ export class VoiceService {
       const piece = this.ttsBuffer.slice(0, cutAt).trim();
       const remainder = this.ttsBuffer.slice(cutAt);
       if (piece.length < MIN_CHUNK_CHARS && !forceFlush) {
-        // Too short; wait for more text unless we're at the end.
         return;
       }
       this.dispatchSpeak(piece);
@@ -320,8 +312,7 @@ export class VoiceService {
       });
   }
 
-  /** Hard stop — used when the user cancels mid-turn or toggles
-   *  voice off. */
+  /** Hard stop — used on session changes or if anything goes wrong. */
   async shutdown(): Promise<void> {
     if (this.stt) {
       try {
@@ -337,13 +328,16 @@ export class VoiceService {
         /* */
       }
     }
-    await this.detachListeners();
+    if (this.partialListener || this.stateListener) {
+      await this.stt?.removeAllListeners();
+      this.partialListener = null;
+      this.stateListener = null;
+    }
     this.ttsBuffer = '';
     this.activeSpeakCount = 0;
-    this.streamDone = false;
+    this.currentPartial = '';
     this.liveTranscript.set('');
-    this.previewText.set('');
-    this.state.set('off');
+    this.state.set('idle');
   }
 
   private errorMessage(err: unknown): string {

@@ -136,22 +136,51 @@
   background: var(--persona-surface);
 }
 
-.btn-mic {
-  background: transparent;
-  color: var(--persona-text-secondary);
+/* The "Listen" button is deliberately bigger and more visible than
+   the attach/send icons so the user can tap it without precision —
+   classical press-to-talk affordance. */
+.btn-listen {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-pill);
+  background: var(--persona-accent);
+  color: var(--persona-accent-contrast);
   border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2),
+              0 0 0 4px color-mix(in srgb, var(--persona-accent) 22%, transparent);
+  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
 
-.btn-mic:hover:not(:disabled),
-.btn-mic:focus-visible:not(:disabled) {
-  color: var(--persona-accent);
-  background: var(--persona-surface);
+.btn-listen:hover:not(:disabled),
+.btn-listen:focus-visible:not(:disabled) {
+  filter: brightness(1.08);
 }
 
-.btn-mic.mic-active {
+.btn-listen:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.btn-listen.listen-recording {
+  background: var(--persona-danger);
+  color: #fff;
+  animation: listen-pulse 1.1s ease-in-out infinite;
+}
+
+.btn-listen.listen-speaking {
+  background: var(--persona-surface-elevated);
   color: var(--persona-accent);
-  background: color-mix(in srgb, var(--persona-accent) 18%, transparent);
   border-color: var(--persona-accent);
+}
+
+@keyframes listen-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--persona-danger) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--persona-danger) 14%, transparent);
+  }
 }
 
 .voice-banner {
@@ -167,12 +196,21 @@
   color: var(--persona-text-secondary);
 }
 
-.voice-banner.listening {
-  border-color: var(--persona-accent);
+.voice-banner.recording {
+  border-color: var(--persona-danger);
 }
 
 .voice-banner.speaking {
   border-color: color-mix(in srgb, var(--persona-accent) 60%, var(--persona-border));
+}
+
+.voice-banner.error {
+  border-color: var(--persona-danger);
+  color: var(--persona-danger);
+}
+
+.voice-banner.recording .voice-dot {
+  background: var(--persona-danger);
 }
 
 .voice-banner .voice-label {

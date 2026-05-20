@@ -304,9 +304,10 @@ export class ChatPage {
     // answer" signal — re-arm autoscroll regardless of where the
     // viewport was.
     this.userInteracting.set(false);
-    // If voice mode is on, stop the mic and prep the TTS pipeline
-    // before the assistant's reply starts streaming in.
-    if (this.voice.state() === 'listening' || this.voice.state() === 'preview') {
+    // If this turn was initiated by the voice flow (composer set
+    // fromVoice when the silence-auto-stop produced a transcript),
+    // prep the TTS pipeline before the assistant's reply streams in.
+    if (event.fromVoice) {
       await this.voice.beforeSpeakReply();
     }
     if (!this.session.activeId()) {

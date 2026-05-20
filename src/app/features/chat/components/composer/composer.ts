@@ -24,6 +24,11 @@ export interface ComposerSendEvent {
   text: string;
   forceThinking: boolean;
   images: ComposerImage[];
+  /** True when this turn was initiated by the voice flow (silence-
+   *  auto-stop produced a transcript that was auto-submitted). The
+   *  chat-page uses this to flip the VoiceService into 'speaking'
+   *  mode so the assistant reply gets TTS'd. */
+  fromVoice?: boolean;
 }
 
 let attachmentCounter = 0;
@@ -76,38 +81,28 @@ export class Composer {
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('textarea');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
 
-  /** Track previewReady/sendRequested counters so we react exactly
-   *  once per event from the VoiceService. */
-  private lastPreviewReady = 0;
-  private lastSendRequested = 0;
+  /** Track transcriptReady so we react exactly once per finalized
+   *  voice utterance from the VoiceService. */
+  private lastTranscriptReady = 0;
 
   constructor() {
     // VoiceService → composer wiring:
-    //   - When the user says "show preview" the VoiceService bumps
-    //     `previewReady`. Copy `previewText` into the textarea so the
-    //     user can edit it. Don't auto-send.
-    //   - When the user says "send" while in preview, VoiceService
-    //     bumps `sendRequested`. Submit the textarea.
+    //   When Android's SpeechRecognizer auto-stops on silence, the
+    //   VoiceService bumps `transcriptReady`. We copy the transcript
+    //   into the textarea AND submit immediately — classical
+    //   press-to-talk: no preview, no edit step.
     effect(() => {
-      const n = this.voice.previewReady();
-      if (n !== this.lastPreviewReady) {
-        this.lastPreviewReady = n;
-        const t = this.voice.previewText();
+      const n = this.voice.transcriptReady();
+      if (n !== this.lastTranscriptReady) {
+        this.lastTranscriptReady = n;
+        const t = this.voice.lastTranscript;
         if (t) {
           this.text.set(t);
-          // Focus the textarea so the user sees the cursor; we do
-          // NOT call our isTouch-aware blur path here because the
-          // user is mid-voice-flow.
-          setTimeout(() => this.textarea()?.nativeElement?.focus(), 0);
-        }
-      }
-    });
-    effect(() => {
-      const n = this.voice.sendRequested();
-      if (n !== this.lastSendRequested) {
-        this.lastSendRequested = n;
-        if (this.text().trim().length > 0 || this.attachments().length > 0) {
-          this.submit();
+          // Defer submit by one task so the textarea value reflects
+          // the set() before submit reads it. fromVoice=true tells
+          // chat-page to flip the VoiceService into 'speaking' so
+          // the assistant reply gets TTS'd.
+          setTimeout(() => this.submit(true), 0);
         }
       }
     });
@@ -208,7 +203,7 @@ export class Composer {
     this.attachments.update((list) => [...list, ...loaded]);
   }
 
-  protected submit(): void {
+  protected submit(fromVoice = false): void {
     if (this.streaming() || this.disabled()) return;
     const value = this.text().trim();
     const images = this.attachments();
@@ -217,6 +212,7 @@ export class Composer {
       text: value,
       forceThinking: this.forceThinking(),
       images,
+      fromVoice,
     });
     this.text.set('');
     this.attachments.set([]);
@@ -246,10 +242,21 @@ export class Composer {
     this.stop.emit();
   }
 
-  /** Mic toggle button. off → listening (with permission prompt on
-   *  first use); anything else → off. */
+  /** Mic toggle button. idle → recording (permission prompt on
+   *  first use); recording → cancel (no submit); speaking → stop TTS. */
   protected onMicToggle(): void {
     void this.voice.toggle();
+  }
+
+  protected micLabel(): string {
+    switch (this.voice.state()) {
+      case 'recording':
+        return 'Cancel listening';
+      case 'speaking':
+        return 'Stop Gigi from speaking';
+      default:
+        return 'Listen';
+    }
   }
 
   protected placeholder(): string {

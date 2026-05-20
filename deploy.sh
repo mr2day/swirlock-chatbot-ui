@@ -21,11 +21,17 @@ echo "[deploy] Reloading PM2 process from ecosystem file..."
 pm2 startOrReload ecosystem.config.cjs --update-env --silent
 pm2 save --silent
 
+# Build the Android APK so the file in Google Drive always matches
+# what's running on the web. Without this step deploy.sh would mirror
+# whatever APK was last built (potentially several versions stale).
+# `cap sync` copies the freshly-built web bundle into the Android
+# assets/public; `./gradlew assembleDebug` compiles the APK.
+echo "[deploy] Syncing Android assets + building debug APK..."
+npx cap sync android
+( cd android && ./gradlew assembleDebug )
+
 # Publish the APK + notes to the user's Google Drive Claude folder.
-# Best-effort: warns and continues if Drive is offline. The APK at
-# android/app/build/outputs/apk/debug/app-debug.apk MUST already exist
-# (run `npx cap sync android && (cd android && ./gradlew assembleDebug)`
-# before deploy.sh if you also want a fresh APK in Drive).
+# Best-effort: warns and continues if Drive is offline.
 echo "[deploy] Publishing APK + notes to Google Drive..."
 node scripts/publish-to-drive.mjs
 
