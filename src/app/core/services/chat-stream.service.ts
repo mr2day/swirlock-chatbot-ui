@@ -371,6 +371,7 @@ export class ChatStreamService {
       case 'turn.chunk':
       case 'turn.done':
       case 'turn.agent':
+      case 'turn.user_corrected':
         return { type: envelope.type, ...base } as ChatStreamEvent;
       case 'error':
         return {

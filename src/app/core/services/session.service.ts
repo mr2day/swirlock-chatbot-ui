@@ -475,6 +475,9 @@ export class SessionService {
           case 'turn.retrieval':
             this.applyRetrievalEvent(evt.payload.event);
             break;
+          case 'turn.user_corrected':
+            this.patchLastUserMessage({ content: evt.payload.content });
+            break;
           case 'turn.agent':
             this.applyAgentEvent(evt.payload);
             break;
@@ -754,6 +757,26 @@ export class SessionService {
       const next = list.slice();
       next[idx] = updated;
       return next;
+    });
+  }
+
+  /** Patches the most recent user message in the active session.
+   *  Used for the STT-correction round: the UI optimistically
+   *  shows the raw STT transcript when the user submits; once the
+   *  orchestrator has run the correction LLM call, we replace
+   *  the bubble's content with the corrected text so what the
+   *  user sees matches what the bot is actually answering. */
+  private patchLastUserMessage(patch: Partial<ChatMessage>): void {
+    this._messages.update((list) => {
+      if (list.length === 0) return list;
+      for (let idx = list.length - 1; idx >= 0; idx -= 1) {
+        if (list[idx].role === 'user') {
+          const next = list.slice();
+          next[idx] = { ...list[idx], ...patch };
+          return next;
+        }
+      }
+      return list;
     });
   }
 

@@ -46,7 +46,12 @@ export type VoiceState = 'idle' | 'recording' | 'speaking';
 const DEFAULT_LANG = 'en-US';
 
 const SENTENCE_BOUNDARY = /[.!?\n]\s+/;
-const MIN_CHUNK_CHARS = 20;
+/** Minimum chars a sentence must have before we send it to the TTS
+ *  engine. Used to avoid dispatching single-character utterances on
+ *  punctuation false-positives ("...") but kept low so short
+ *  legitimate sentences ("Hi!", "Sigur.") still dispatch promptly
+ *  instead of waiting for the next boundary. */
+const MIN_CHUNK_CHARS = 4;
 
 /**
  * ISO 639-3 (what franc returns) → BCP 47 (what Android's TTS and
@@ -94,21 +99,34 @@ const ISO_639_3_TO_BCP_47: Record<string, string> = {
 };
 
 /**
- * Per-turn language detector. Runs franc-min over the text and
- * maps the ISO 639-3 result to BCP 47. franc needs ~10+ chars to
- * be useful; for very short inputs we fall back to DEFAULT_LANG
- * (the user can still type in their language; the next turn with
- * enough text will detect correctly). Not Romanian-biased, not
- * tied to any single user's language profile.
+ * Per-turn language detector. franc-min is statistically reliable
+ * on ~100+ char text but routinely confuses Romance languages
+ * (en/pt/es/it/ro share enough short function words that a 30-char
+ * English greeting can come back as Portuguese). To avoid that
+ * class of bug we:
+ *
+ *  - For text < 80 chars: trust `fallback` (the user's own
+ *    sttLang from their latest typed/spoken message). The user's
+ *    own language is a far better prior than a short-text franc
+ *    guess.
+ *  - For text >= 80 chars: accept franc's verdict only if it maps
+ *    to a known BCP 47 locale; otherwise stick with fallback.
+ *
+ * Net result: short replies inherit the user's language; long
+ * replies in a different language (e.g. the bot answers in French
+ * because the user asked for a translation) are still detected
+ * correctly.
  */
-function detectLang(text: string): string {
-  if (!text || text.trim().length < 10) return DEFAULT_LANG;
+function detectLang(text: string, fallback: string = DEFAULT_LANG): string {
+  if (!text || text.trim().length < 10) return fallback;
+  // For short text franc is too noisy; trust the user's own language.
+  if (text.length < 80) return fallback;
   try {
-    const iso = franc(text, { minLength: 8 });
-    if (iso === 'und') return DEFAULT_LANG;
-    return ISO_639_3_TO_BCP_47[iso] ?? DEFAULT_LANG;
+    const iso = franc(text, { minLength: 20 });
+    if (iso === 'und') return fallback;
+    return ISO_639_3_TO_BCP_47[iso] ?? fallback;
   } catch {
-    return DEFAULT_LANG;
+    return fallback;
   }
 }
 
@@ -379,13 +397,25 @@ export class VoiceService {
     this.liveTranscript.set(text);
   }
 
-  /** Silence-auto-stop fired. If we're still in 'recording' state,
-   *  the latest partial is the user's final utterance — bump
-   *  transcriptReady so the composer can submit. If state is
-   *  already 'idle' (because cancelRecording was called) we drop
-   *  the transcript silently. */
+  /** Silence-auto-stop fired. Android's SpeechRecognizer calls
+   *  onEndOfSpeech() BEFORE onResults() — and the plugin maps
+   *  onEndOfSpeech to listeningState='stopped' while emitting the
+   *  final transcription via a late partialResults event. If we
+   *  consume currentPartial the instant we see stopped, we lose
+   *  whatever word(s) were still in onResults's pipeline.
+   *
+   *  So we wait ~400ms in 'recording' state for any late partial
+   *  to update currentPartial, then commit. The state stays
+   *  'recording' during the delay so onPartial keeps accepting
+   *  updates. If the user cancelled mid-delay, state will already
+   *  have flipped to 'idle' and we abort. */
   private onListeningState(status: string): void {
     if (status !== 'stopped') return;
+    if (this.state() !== 'recording') return;
+    setTimeout(() => this.finalizeRecording(), 400);
+  }
+
+  private finalizeRecording(): void {
     if (this.state() !== 'recording') return;
     const text = this.currentPartial.trim();
     this.currentPartial = '';
@@ -427,30 +457,32 @@ export class VoiceService {
   }
 
   /** Streaming-TTS chunk. Composer calls this for every assistant
-   *  chunk while state is 'speaking'. Sentence-buffer + queue.
-   *  Detects the response language and locks it (plus a
-   *  gender-matched voice for the active persona) so we don't
-   *  switch voices mid-paragraph. The lock fires either when the
-   *  buffer reaches the threshold OR when the first sentence is
-   *  about to be flushed — whichever comes first. */
+   *  chunk while state is 'speaking'. The lock fires inside
+   *  drainSentences, right before the very first dispatch — by
+   *  then we have at least one complete sentence in the buffer,
+   *  which is enough context for the language detector AND
+   *  guarantees every sentence in the response uses the same
+   *  locked voice. */
   async speakChunk(chunk: string): Promise<void> {
     if (this.state() !== 'speaking') return;
     if (!this.tts) return;
     this.ttsBuffer += chunk;
-    if (!this.ttsLangLocked && this.ttsBuffer.length >= 30) {
-      await this.lockTtsLang();
-    }
     await this.drainSentences(false);
   }
 
   /** Locks the response's language + gender-matched voice. Called
    *  before any dispatch fires; ensures every sentence in the
-   *  response uses the same voice. */
+   *  response uses the same voice. Uses the user's own sttLang as
+   *  the fallback when detection isn't confident — far more
+   *  reliable than a short-text franc guess. */
   private async lockTtsLang(): Promise<void> {
     if (this.ttsLangLocked) return;
-    this.ttsLang = detectLang(this.ttsBuffer);
+    this.ttsLang = detectLang(this.ttsBuffer, this.sttLang);
     this.ttsVoiceIndex = await this.pickVoiceIndex(this.ttsLang);
     this.ttsLangLocked = true;
+    console.log(
+      `[voice] tts-lang locked: lang=${this.ttsLang} voice-index=${this.ttsVoiceIndex ?? '(engine default)'} buffer.length=${this.ttsBuffer.length}`,
+    );
   }
 
   /** End of stream: flush any remaining buffer, await all queued

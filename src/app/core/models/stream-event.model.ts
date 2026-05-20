@@ -73,6 +73,14 @@ export type ChatStreamEvent =
       payload: { step?: number };
     }
   | {
+      /** Orchestrator fires this when an STT-correction round
+       *  produced a corrected user text that differs from the raw
+       *  transcription. UI patches the most recent user bubble. */
+      type: 'turn.user_corrected';
+      correlationId: string;
+      payload: { content: string };
+    }
+  | {
       type: 'turn.agent';
       correlationId: string;
       payload: {
