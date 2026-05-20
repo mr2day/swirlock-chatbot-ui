@@ -35,11 +35,41 @@ import { Capacitor } from '@capacitor/core';
 
 export type VoiceState = 'idle' | 'recording' | 'speaking';
 
-const STT_LANG = 'ro-RO';
-const TTS_LANG = 'ro-RO';
+/**
+ * Default STT/TTS language used when no other signal is available
+ * (new session, voice mode toggled before any text has been typed
+ * or any reply has streamed in). English because it's the most
+ * universally well-supported on Android TTS/STT engines.
+ */
+const DEFAULT_LANG = 'en-US';
 
 const SENTENCE_BOUNDARY = /[.!?\n]\s+/;
 const MIN_CHUNK_CHARS = 20;
+
+/** Per-turn language detector. Looks at the text for Romanian-only
+ *  diacritics (ăâîșțĂÂÎȘȚ) and a handful of high-frequency Romanian
+ *  function words. Either signal → ro-RO. Otherwise en-US.
+ *
+ *  Deliberately a two-language detector (en/ro) — those are the
+ *  user's languages. To support more languages later, swap in a
+ *  proper langdetect library; the heuristic here is intentionally
+ *  small and cheap. */
+function detectLang(text: string): 'ro-RO' | 'en-US' {
+  if (!text) return DEFAULT_LANG as 'ro-RO' | 'en-US';
+  if (/[ăâîșțĂÂÎȘȚ]/.test(text)) return 'ro-RO';
+  const lower = ` ${text.toLowerCase()} `;
+  const roWords = [
+    ' este ', ' sunt ', ' și ', ' că ', ' nu ', ' mai ', ' nici ',
+    ' cum ', ' care ', ' pentru ', ' însă ', ' dar ', ' acum ',
+    ' bună ', ' salut ', ' ceva ', ' multe ', ' foarte ',
+  ];
+  let hits = 0;
+  for (const w of roWords) {
+    if (lower.includes(w)) hits += 1;
+    if (hits >= 2) return 'ro-RO';
+  }
+  return 'en-US';
+}
 
 interface SpeechRecognitionLike {
   available(): Promise<{ available: boolean }>;
@@ -95,6 +125,18 @@ export class VoiceService {
   private currentPartial = '';
   private ttsBuffer = '';
   private activeSpeakCount = 0;
+  /** Language to use when next startRecording fires. Set by
+   *  noteUserText whenever the user types or sends. Re-detected from
+   *  the live partial result as STT runs (so if the user's first
+   *  syllables look Romanian, we ideally restart the recognizer in
+   *  ro-RO — but Android can't change the recognizer language
+   *  mid-session, so this only affects future startRecording calls). */
+  private sttLang: 'ro-RO' | 'en-US' = DEFAULT_LANG as 'ro-RO' | 'en-US';
+  /** Language locked in for the current TTS response. Detected from
+   *  the first 80 chars of the response stream and reused for every
+   *  sentence chunk so we don't switch voices mid-paragraph. */
+  private ttsLang: 'ro-RO' | 'en-US' = DEFAULT_LANG as 'ro-RO' | 'en-US';
+  private ttsLangLocked = false;
 
   /** Lazy plugin import. Returns false on web. */
   private async ensurePlugins(): Promise<boolean> {
@@ -157,9 +199,11 @@ export class VoiceService {
       this.state.set('recording');
       // Fire-and-forget. The Android SpeechRecognizer auto-stops on
       // silence; the listeningState='stopped' listener will then
-      // finalize the transcript and bump transcriptReady.
+      // finalize the transcript and bump transcriptReady. Language
+      // is whatever was last detected from the user's text (set via
+      // noteUserText) or DEFAULT_LANG for a fresh session.
       void stt.start({
-        language: STT_LANG,
+        language: this.sttLang,
         maxResults: 1,
         partialResults: true,
         popup: false,
@@ -241,15 +285,31 @@ export class VoiceService {
     }
     this.ttsBuffer = '';
     this.activeSpeakCount = 0;
+    this.ttsLangLocked = false;
+    this.ttsLang = DEFAULT_LANG as 'ro-RO' | 'en-US';
     this.state.set('speaking');
   }
 
+  /** Composer calls this whenever the user types text or sends a
+   *  message. We update the language to use on the next mic activation
+   *  so the recognizer matches the conversation's current language. */
+  noteUserText(text: string): void {
+    if (!text || text.length < 4) return;
+    this.sttLang = detectLang(text);
+  }
+
   /** Streaming-TTS chunk. Composer calls this for every assistant
-   *  chunk while state is 'speaking'. Sentence-buffer + queue. */
+   *  chunk while state is 'speaking'. Sentence-buffer + queue.
+   *  Detects the response language from the first ~80 chars and
+   *  locks it so we don't switch voices mid-paragraph. */
   async speakChunk(chunk: string): Promise<void> {
     if (this.state() !== 'speaking') return;
     if (!this.tts) return;
     this.ttsBuffer += chunk;
+    if (!this.ttsLangLocked && this.ttsBuffer.length >= 80) {
+      this.ttsLang = detectLang(this.ttsBuffer);
+      this.ttsLangLocked = true;
+    }
     await this.drainSentences(false);
   }
 
@@ -259,6 +319,12 @@ export class VoiceService {
   async finalizeReply(): Promise<void> {
     if (this.state() !== 'speaking') return;
     if (!this.tts) return;
+    // If we never accumulated enough to lock a language, finalize
+    // the detection now from whatever we have.
+    if (!this.ttsLangLocked) {
+      this.ttsLang = detectLang(this.ttsBuffer);
+      this.ttsLangLocked = true;
+    }
     await this.drainSentences(true);
     while (this.activeSpeakCount > 0) {
       await new Promise((r) => setTimeout(r, 100));
@@ -305,7 +371,7 @@ export class VoiceService {
     if (!this.tts) return;
     this.activeSpeakCount += 1;
     void this.tts
-      .speak({ text, lang: TTS_LANG, queueStrategy: 1 /* Add */ })
+      .speak({ text, lang: this.ttsLang, queueStrategy: 1 /* Add */ })
       .catch((err) => console.error('[voice] speak failed', err))
       .finally(() => {
         this.activeSpeakCount = Math.max(0, this.activeSpeakCount - 1);

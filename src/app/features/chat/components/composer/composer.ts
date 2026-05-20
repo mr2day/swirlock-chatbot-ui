@@ -208,6 +208,9 @@ export class Composer {
     const value = this.text().trim();
     const images = this.attachments();
     if (!value && images.length === 0) return;
+    // Pass the user's text to VoiceService so the next mic activation
+    // uses the right STT language (en-US vs ro-RO).
+    if (value) this.voice.noteUserText(value);
     this.send.emit({
       text: value,
       forceThinking: this.forceThinking(),
