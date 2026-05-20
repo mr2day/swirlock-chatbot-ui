@@ -34,6 +34,7 @@
     "@capgo/capacitor-updater": "^8.45.11",
     "dompurify": "^3.4.2",
     "express": "^4.21.2",
+    "franc-min": "^6.2.0",
     "highlight.js": "^11.11.1",
     "marked": "^18.0.3",
     "oidc-client-ts": "^3.5.0",

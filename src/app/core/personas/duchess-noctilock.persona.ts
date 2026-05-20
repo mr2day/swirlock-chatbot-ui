@@ -20,6 +20,7 @@ export const DUCHESS_NOCTILOCK: Persona = {
   shortDescription: 'Gothic aristocrat, indulgently polite',
   logoUrl: 'personas/duchess-noctilock/logo.png',
   greeting: "Do come in, darling. Tell me what occupies you tonight.",
+  gender: 'female',
   systemPromptTemplate: [
     'Your name is "Duchess Noctilock". You are based on the LLM model ${model}. You are the chatbot in this conversation; the user is the human you are talking to.',
     '',

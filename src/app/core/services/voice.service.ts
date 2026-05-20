@@ -1,5 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
+import { franc } from 'franc-min';
+import { PersonaService } from './persona.service';
 
 /**
  * Simplified voice flow — classical press-to-talk.
@@ -37,38 +39,77 @@ export type VoiceState = 'idle' | 'recording' | 'speaking';
 
 /**
  * Default STT/TTS language used when no other signal is available
- * (new session, voice mode toggled before any text has been typed
- * or any reply has streamed in). English because it's the most
- * universally well-supported on Android TTS/STT engines.
+ * (new session, voice mode toggled before any text has been typed,
+ * or franc can't decide from a very short input). English because
+ * it's the most universally well-supported on Android engines.
  */
 const DEFAULT_LANG = 'en-US';
 
 const SENTENCE_BOUNDARY = /[.!?\n]\s+/;
 const MIN_CHUNK_CHARS = 20;
 
-/** Per-turn language detector. Looks at the text for Romanian-only
- *  diacritics (ăâîșțĂÂÎȘȚ) and a handful of high-frequency Romanian
- *  function words. Either signal → ro-RO. Otherwise en-US.
- *
- *  Deliberately a two-language detector (en/ro) — those are the
- *  user's languages. To support more languages later, swap in a
- *  proper langdetect library; the heuristic here is intentionally
- *  small and cheap. */
-function detectLang(text: string): 'ro-RO' | 'en-US' {
-  if (!text) return DEFAULT_LANG as 'ro-RO' | 'en-US';
-  if (/[ăâîșțĂÂÎȘȚ]/.test(text)) return 'ro-RO';
-  const lower = ` ${text.toLowerCase()} `;
-  const roWords = [
-    ' este ', ' sunt ', ' și ', ' că ', ' nu ', ' mai ', ' nici ',
-    ' cum ', ' care ', ' pentru ', ' însă ', ' dar ', ' acum ',
-    ' bună ', ' salut ', ' ceva ', ' multe ', ' foarte ',
-  ];
-  let hits = 0;
-  for (const w of roWords) {
-    if (lower.includes(w)) hits += 1;
-    if (hits >= 2) return 'ro-RO';
+/**
+ * ISO 639-3 (what franc returns) → BCP 47 (what Android's TTS and
+ * SpeechRecognizer want). Covers the European set the user listed
+ * plus the common world languages a multilingual user might pull
+ * in. Defaulting to en-US for anything not in this map is fine —
+ * the user can still type that language and the LLM will reply in
+ * it; voice I/O just falls back to English for unknown locales.
+ */
+const ISO_639_3_TO_BCP_47: Record<string, string> = {
+  eng: 'en-US',
+  ron: 'ro-RO',
+  pol: 'pl-PL',
+  por: 'pt-PT',
+  spa: 'es-ES',
+  fra: 'fr-FR',
+  ita: 'it-IT',
+  deu: 'de-DE',
+  nld: 'nl-NL',
+  ell: 'el-GR',
+  est: 'et-EE',
+  fin: 'fi-FI',
+  swe: 'sv-SE',
+  nor: 'nb-NO',
+  dan: 'da-DK',
+  ces: 'cs-CZ',
+  slk: 'sk-SK',
+  hun: 'hu-HU',
+  bul: 'bg-BG',
+  hrv: 'hr-HR',
+  srp: 'sr-RS',
+  slv: 'sl-SI',
+  ukr: 'uk-UA',
+  rus: 'ru-RU',
+  tur: 'tr-TR',
+  lit: 'lt-LT',
+  lav: 'lv-LV',
+  cat: 'ca-ES',
+  eus: 'eu-ES',
+  glg: 'gl-ES',
+  cym: 'cy-GB',
+  gle: 'ga-IE',
+  isl: 'is-IS',
+  mlt: 'mt-MT',
+};
+
+/**
+ * Per-turn language detector. Runs franc-min over the text and
+ * maps the ISO 639-3 result to BCP 47. franc needs ~10+ chars to
+ * be useful; for very short inputs we fall back to DEFAULT_LANG
+ * (the user can still type in their language; the next turn with
+ * enough text will detect correctly). Not Romanian-biased, not
+ * tied to any single user's language profile.
+ */
+function detectLang(text: string): string {
+  if (!text || text.trim().length < 10) return DEFAULT_LANG;
+  try {
+    const iso = franc(text, { minLength: 8 });
+    if (iso === 'und') return DEFAULT_LANG;
+    return ISO_639_3_TO_BCP_47[iso] ?? DEFAULT_LANG;
+  } catch {
+    return DEFAULT_LANG;
   }
-  return 'en-US';
 }
 
 interface SpeechRecognitionLike {
@@ -89,6 +130,14 @@ interface SpeechRecognitionLike {
   removeAllListeners(): Promise<void>;
 }
 
+interface TtsVoice {
+  voiceURI?: string;
+  name?: string;
+  lang?: string;
+  default?: boolean;
+  localService?: boolean;
+}
+
 interface TextToSpeechLike {
   speak(opts: {
     text: string;
@@ -96,9 +145,11 @@ interface TextToSpeechLike {
     rate?: number;
     pitch?: number;
     volume?: number;
+    voice?: number;
     queueStrategy?: number;
   }): Promise<void>;
   stop(): Promise<void>;
+  getSupportedVoices(): Promise<{ voices: TtsVoice[] }>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -126,17 +177,23 @@ export class VoiceService {
   private ttsBuffer = '';
   private activeSpeakCount = 0;
   /** Language to use when next startRecording fires. Set by
-   *  noteUserText whenever the user types or sends. Re-detected from
-   *  the live partial result as STT runs (so if the user's first
-   *  syllables look Romanian, we ideally restart the recognizer in
-   *  ro-RO — but Android can't change the recognizer language
-   *  mid-session, so this only affects future startRecording calls). */
-  private sttLang: 'ro-RO' | 'en-US' = DEFAULT_LANG as 'ro-RO' | 'en-US';
+   *  noteUserText whenever the user types or sends. Android can't
+   *  change the recognizer language mid-session, so this only
+   *  affects future startRecording calls. */
+  private sttLang: string = DEFAULT_LANG;
   /** Language locked in for the current TTS response. Detected from
    *  the first 80 chars of the response stream and reused for every
    *  sentence chunk so we don't switch voices mid-paragraph. */
-  private ttsLang: 'ro-RO' | 'en-US' = DEFAULT_LANG as 'ro-RO' | 'en-US';
+  private ttsLang: string = DEFAULT_LANG;
   private ttsLangLocked = false;
+  /** Resolved voice index for the current TTS response. Picked once
+   *  per response based on persona gender + detected language. */
+  private ttsVoiceIndex: number | undefined = undefined;
+  /** Cached voice list from the plugin — populated lazily on first
+   *  TTS use; voice metadata doesn't change at runtime. */
+  private cachedVoices: TtsVoice[] | null = null;
+
+  private readonly personas = inject(PersonaService);
 
   /** Lazy plugin import. Returns false on web. */
   private async ensurePlugins(): Promise<boolean> {
@@ -286,7 +343,8 @@ export class VoiceService {
     this.ttsBuffer = '';
     this.activeSpeakCount = 0;
     this.ttsLangLocked = false;
-    this.ttsLang = DEFAULT_LANG as 'ro-RO' | 'en-US';
+    this.ttsLang = DEFAULT_LANG;
+    this.ttsVoiceIndex = undefined;
     this.state.set('speaking');
   }
 
@@ -301,13 +359,15 @@ export class VoiceService {
   /** Streaming-TTS chunk. Composer calls this for every assistant
    *  chunk while state is 'speaking'. Sentence-buffer + queue.
    *  Detects the response language from the first ~80 chars and
-   *  locks it so we don't switch voices mid-paragraph. */
+   *  locks it (plus a gender-matched voice for the active persona)
+   *  so we don't switch voices mid-paragraph. */
   async speakChunk(chunk: string): Promise<void> {
     if (this.state() !== 'speaking') return;
     if (!this.tts) return;
     this.ttsBuffer += chunk;
     if (!this.ttsLangLocked && this.ttsBuffer.length >= 80) {
       this.ttsLang = detectLang(this.ttsBuffer);
+      this.ttsVoiceIndex = await this.pickVoiceIndex(this.ttsLang);
       this.ttsLangLocked = true;
     }
     await this.drainSentences(false);
@@ -323,6 +383,7 @@ export class VoiceService {
     // the detection now from whatever we have.
     if (!this.ttsLangLocked) {
       this.ttsLang = detectLang(this.ttsBuffer);
+      this.ttsVoiceIndex = await this.pickVoiceIndex(this.ttsLang);
       this.ttsLangLocked = true;
     }
     await this.drainSentences(true);
@@ -370,12 +431,71 @@ export class VoiceService {
   private dispatchSpeak(text: string): void {
     if (!this.tts) return;
     this.activeSpeakCount += 1;
+    const opts: Parameters<TextToSpeechLike['speak']>[0] = {
+      text,
+      lang: this.ttsLang,
+      queueStrategy: 1 /* Add */,
+    };
+    if (this.ttsVoiceIndex !== undefined) opts.voice = this.ttsVoiceIndex;
     void this.tts
-      .speak({ text, lang: this.ttsLang, queueStrategy: 1 /* Add */ })
+      .speak(opts)
       .catch((err) => console.error('[voice] speak failed', err))
       .finally(() => {
         this.activeSpeakCount = Math.max(0, this.activeSpeakCount - 1);
       });
+  }
+
+  /** Returns the index (in TextToSpeech.getSupportedVoices output) of
+   *  the best voice for the given BCP 47 language tag, matching the
+   *  active persona's gender when possible. Best-effort heuristic by
+   *  voice name — Android TTS voices don't carry explicit gender
+   *  metadata, so we match against common gendered-name patterns. */
+  private async pickVoiceIndex(lang: string): Promise<number | undefined> {
+    if (!this.tts) return undefined;
+    if (!this.cachedVoices) {
+      try {
+        const result = await this.tts.getSupportedVoices();
+        this.cachedVoices = result?.voices ?? [];
+      } catch {
+        this.cachedVoices = [];
+      }
+    }
+    if (this.cachedVoices.length === 0) return undefined;
+
+    const gender = this.personas.active().gender;
+    const langPrefix = lang.toLowerCase().slice(0, 2);
+    const matching = this.cachedVoices
+      .map((v, i) => ({ v, i }))
+      .filter(({ v }) => (v.lang ?? '').toLowerCase().startsWith(langPrefix));
+    if (matching.length === 0) return undefined;
+
+    const femaleHints = [
+      'female', 'femin', 'femme', 'f-', '-f ',
+      'samantha', 'karen', 'tessa', 'moira', 'allison', 'susan',
+      'maria', 'anna', 'sofia', 'monica', 'celine', 'audrey', 'amelie',
+      'ioana', 'natalia', 'paulina', 'agata', 'martina', 'giulia',
+    ];
+    const maleHints = [
+      'male', 'mascul', 'm-', '-m ',
+      'daniel', 'alex', 'tom', 'fred', 'james', 'peter', 'paul',
+      'mark', 'george', 'mateo', 'jorge', 'andre', 'francesco', 'pietro',
+      'andrei', 'jacek', 'krzysztof', 'kostas',
+    ];
+    const wanted = gender === 'female' ? femaleHints : maleHints;
+    const opposite = gender === 'female' ? maleHints : femaleHints;
+
+    const wantedMatch = matching.find(({ v }) =>
+      wanted.some((h) => (v.name ?? '').toLowerCase().includes(h)),
+    );
+    if (wantedMatch) return wantedMatch.i;
+
+    const nonOpposite = matching.find(
+      ({ v }) =>
+        !opposite.some((h) => (v.name ?? '').toLowerCase().includes(h)),
+    );
+    if (nonOpposite) return nonOpposite.i;
+
+    return matching[0].i;
   }
 
   /** Hard stop — used on session changes or if anything goes wrong. */

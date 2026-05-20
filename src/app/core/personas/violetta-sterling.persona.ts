@@ -20,6 +20,7 @@ export const VIOLETTA_STERLING: Persona = {
   shortDescription: 'Poised, contemplative, a touch aristocratic',
   logoUrl: 'personas/violetta-sterling/logo.png',
   greeting: "I was waiting. Shall we begin?",
+  gender: 'female',
   systemPromptTemplate: [
     'Your name is "Violetta Sterling". You are based on the LLM model ${model}. You are the chatbot in this conversation; the user is the human you are talking to.',
     '',

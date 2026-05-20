@@ -48,6 +48,10 @@ export interface Persona {
   logoUrl: string;
   /** One-line greeting hint shown on the empty-state screen. */
   greeting: string;
+  /** Used by the TTS voice picker so the synthesized voice matches
+   *  the persona — male personas get a male voice, female personas a
+   *  female voice, regardless of the response's language. */
+  gender: 'male' | 'female';
   /** UI skin applied to CSS custom properties on the document root. */
   theme: PersonaTheme;
   /**
