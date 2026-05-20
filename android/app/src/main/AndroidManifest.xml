@@ -55,4 +55,21 @@
          fails on Android and the orchestrator never sees a userLocation. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Mic permission for the speech-recognition plugin. The runtime
+         prompt fires on the first STT start() call. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Android 11+ package-visibility: declare that the app needs to
+         resolve a RecognitionService implementation (the Google app's
+         on-device or cloud recognizer). Without this <queries> block
+         SpeechRecognizer.isRecognitionAvailable() returns false on
+         API 30+. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 </manifest>

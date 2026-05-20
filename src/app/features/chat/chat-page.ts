@@ -14,6 +14,7 @@ import { Router } from '@angular/router';
 import { ChatStreamService } from '../../core/services/chat-stream.service';
 import { SessionService } from '../../core/services/session.service';
 import { PersonaService } from '../../core/services/persona.service';
+import { VoiceService } from '../../core/services/voice.service';
 import { Composer, type ComposerSendEvent } from './components/composer/composer';
 import { MessageBubble } from './components/message-bubble/message-bubble';
 
@@ -35,6 +36,7 @@ export class ChatPage {
   protected readonly session = inject(SessionService);
   protected readonly persona = inject(PersonaService);
   private readonly stream = inject(ChatStreamService);
+  private readonly voice = inject(VoiceService);
   private readonly router = inject(Router);
 
   protected readonly thinkingSupported = this.stream.thinkingSupported;
@@ -202,7 +204,44 @@ export class ChatPage {
         this.scheduleScrollToBottom(host);
       }
     });
+
+    // Stream assistant chunks into the VoiceService for TTS. Only
+    // runs when voice mode is 'speaking' (set by send() before the
+    // turn starts). Tracks the last seen message's content length so
+    // we feed only deltas to speakChunk(). When the message status
+    // flips to a terminal value, finalize so VoiceService swaps
+    // back to 'listening' for the next turn.
+    effect(() => {
+      if (this.voice.state() !== 'speaking') return;
+      const list = this.session.messages();
+      const last = list[list.length - 1];
+      if (!last || last.role !== 'assistant') return;
+      if (last.localId !== this.ttsTrackedMessageId) {
+        this.ttsTrackedMessageId = last.localId;
+        this.ttsSpokenLength = 0;
+      }
+      if (last.content.length > this.ttsSpokenLength) {
+        const delta = last.content.slice(this.ttsSpokenLength);
+        this.ttsSpokenLength = last.content.length;
+        void this.voice.speakChunk(delta);
+      }
+      if (
+        last.status === 'done' ||
+        last.status === 'error' ||
+        last.status === 'cancelled'
+      ) {
+        this.ttsTrackedMessageId = null;
+        this.ttsSpokenLength = 0;
+        void this.voice.finalizeReply();
+      }
+    });
   }
+
+  /** Tracks which assistant message we're currently feeding to TTS,
+   *  so a session-switch or a new turn resets the spoken-length
+   *  counter cleanly. */
+  private ttsTrackedMessageId: string | null = null;
+  private ttsSpokenLength = 0;
 
   /**
    * Snap-to-bottom write, throttled to once per animation frame.
@@ -265,6 +304,11 @@ export class ChatPage {
     // answer" signal — re-arm autoscroll regardless of where the
     // viewport was.
     this.userInteracting.set(false);
+    // If voice mode is on, stop the mic and prep the TTS pipeline
+    // before the assistant's reply starts streaming in.
+    if (this.voice.state() === 'listening' || this.voice.state() === 'preview') {
+      await this.voice.beforeSpeakReply();
+    }
     if (!this.session.activeId()) {
       try {
         const id = await this.session.newSession();

@@ -3,6 +3,7 @@ import {
   Component,
   ElementRef,
   effect,
+  inject,
   input,
   output,
   signal,
@@ -10,6 +11,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { VERSION } from '../../../../core/version';
+import { VoiceService } from '../../../../core/services/voice.service';
 
 export interface ComposerImage {
   id: string;
@@ -64,6 +66,7 @@ export class Composer {
   readonly stop = output<void>();
 
   protected readonly version = VERSION;
+  protected readonly voice = inject(VoiceService);
 
   protected readonly text = signal<string>('');
   protected readonly forceThinking = signal<boolean>(false);
@@ -73,7 +76,42 @@ export class Composer {
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('textarea');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
 
+  /** Track previewReady/sendRequested counters so we react exactly
+   *  once per event from the VoiceService. */
+  private lastPreviewReady = 0;
+  private lastSendRequested = 0;
+
   constructor() {
+    // VoiceService → composer wiring:
+    //   - When the user says "show preview" the VoiceService bumps
+    //     `previewReady`. Copy `previewText` into the textarea so the
+    //     user can edit it. Don't auto-send.
+    //   - When the user says "send" while in preview, VoiceService
+    //     bumps `sendRequested`. Submit the textarea.
+    effect(() => {
+      const n = this.voice.previewReady();
+      if (n !== this.lastPreviewReady) {
+        this.lastPreviewReady = n;
+        const t = this.voice.previewText();
+        if (t) {
+          this.text.set(t);
+          // Focus the textarea so the user sees the cursor; we do
+          // NOT call our isTouch-aware blur path here because the
+          // user is mid-voice-flow.
+          setTimeout(() => this.textarea()?.nativeElement?.focus(), 0);
+        }
+      }
+    });
+    effect(() => {
+      const n = this.voice.sendRequested();
+      if (n !== this.lastSendRequested) {
+        this.lastSendRequested = n;
+        if (this.text().trim().length > 0 || this.attachments().length > 0) {
+          this.submit();
+        }
+      }
+    });
+
     // Auto-resize the textarea up to a comfortable mobile-friendly cap.
     effect(() => {
       const text = this.text();
@@ -206,6 +244,12 @@ export class Composer {
 
   protected onStop(): void {
     this.stop.emit();
+  }
+
+  /** Mic toggle button. off → listening (with permission prompt on
+   *  first use); anything else → off. */
+  protected onMicToggle(): void {
+    void this.voice.toggle();
   }
 
   protected placeholder(): string {
