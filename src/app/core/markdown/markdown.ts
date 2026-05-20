@@ -59,6 +59,21 @@ export function renderMarkdownSafe(input: string | null | undefined): string {
   const html = marked.parse(input, { async: false }) as string;
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'lang'],
+    // Includes `src`/`alt`/`title` so markdown `![alt](url)` images
+    // actually render — without `src` here DOMPurify strips it and
+    // leaves an `<img>` with no source (invisible). DOMPurify's
+    // default URI safety still blocks `javascript:` and other unsafe
+    // schemes, and the CSS in message-bubble.scss constrains image
+    // width to the bubble so a wide image can't widen the page.
+    ALLOWED_ATTR: [
+      'href',
+      'target',
+      'rel',
+      'class',
+      'lang',
+      'src',
+      'alt',
+      'title',
+    ],
   }).trim();
 }

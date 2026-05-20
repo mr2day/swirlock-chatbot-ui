@@ -11,6 +11,7 @@ import { AuthService } from './auth.service';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
+import { CAPABILITY_RULES } from '../personas/shared-rules';
 
 // Per-account localStorage scopes. Pre-auth (dev-token era) keys
 // `gigi.sessions` and `gigi.activeSessionId` are deleted on first boot
@@ -237,10 +238,15 @@ export class SessionService {
     try {
       const persona = this.persona.active();
       const modelId = await this.stream.getModelId();
-      const systemPrompt = persona.systemPromptTemplate.replace(
+      const filled = persona.systemPromptTemplate.replace(
         /\$\{model\}/g,
         modelId,
       );
+      // Capability rules (image-awareness + no-name-prefix) apply to
+      // every persona; pulling them out of each persona file keeps
+      // the persona templates short and means one edit propagates
+      // everywhere. See personas/shared-rules.ts.
+      const systemPrompt = `${filled}\n\n${CAPABILITY_RULES}`;
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,
