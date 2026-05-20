@@ -112,6 +112,68 @@ function detectLang(text: string): string {
   }
 }
 
+/**
+ * Strips markdown formatting characters from a fragment of assistant
+ * text before it reaches the TTS engine. Without this, the engine
+ * reads `**bold**` as "asterisk asterisk bold asterisk asterisk",
+ * code fences as "backtick backtick backtick", and so on — produced
+ * an unusable spoken output on assistant replies that use any
+ * formatting at all.
+ *
+ * Deliberately a regex stripper, not a full markdown parser: TTS
+ * only needs the prose, not structure. Spec-compliance isn't the
+ * goal — making the audio listenable is.
+ */
+function stripMarkdownForTTS(text: string): string {
+  let t = text;
+  // Images: drop entirely (alt text isn't meant to be spoken).
+  t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+  // Links: keep the link text, drop the URL.
+  t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+  // Triple-emphasis ***x*** / ___x___.
+  t = t.replace(/\*\*\*([\s\S]+?)\*\*\*/g, '$1');
+  t = t.replace(/___([\s\S]+?)___/g, '$1');
+  // Bold **x** / __x__.
+  t = t.replace(/\*\*([\s\S]+?)\*\*/g, '$1');
+  t = t.replace(/__([\s\S]+?)__/g, '$1');
+  // Italic *x* / _x_. (Lone single-char wrappers; greedy variants
+  // would over-match across paragraphs.)
+  t = t.replace(/\*([^*\n]+?)\*/g, '$1');
+  t = t.replace(/(^|[^\w])_([^_\n]+?)_(?!\w)/g, '$1$2');
+  // Inline code `x`.
+  t = t.replace(/`([^`\n]+)`/g, '$1');
+  // Code fences — drop the fence lines; keep the inner content
+  // because comments and identifiers often hold the actual sentence.
+  t = t.replace(/^[ \t]*```[a-zA-Z0-9_+\-]*\s*$/gm, '');
+  // Headings: strip leading #'s.
+  t = t.replace(/^\s{0,3}#{1,6}\s+/gm, '');
+  // Blockquotes: strip leading >.
+  t = t.replace(/^\s{0,3}>\s+/gm, '');
+  // Unordered list markers (-, *, +) at line start.
+  t = t.replace(/^\s*[-*+]\s+/gm, '');
+  // Ordered list markers (1.) at line start.
+  t = t.replace(/^\s*\d+\.\s+/gm, '');
+  // Horizontal rules.
+  t = t.replace(/^\s*-{3,}\s*$/gm, '');
+  // Table cell separators.
+  t = t.replace(/\|/g, ' ');
+  // Stray decoration that survived: lone asterisks and trailing
+  // underscores that weren't paired. TTS never wants them.
+  t = t.replace(/[*]+/g, '');
+  // HTML entities (the assistant occasionally emits these).
+  t = t
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+  // Collapse runs of whitespace.
+  t = t.replace(/[ \t]+/g, ' ');
+  t = t.replace(/\n{3,}/g, '\n\n');
+  return t.trim();
+}
+
 interface SpeechRecognitionLike {
   available(): Promise<{ available: boolean }>;
   start(opts: {
@@ -430,9 +492,13 @@ export class VoiceService {
 
   private dispatchSpeak(text: string): void {
     if (!this.tts) return;
+    // Strip markdown formatting so the TTS engine doesn't read
+    // asterisks, backticks, list markers, etc. as literal words.
+    const spoken = stripMarkdownForTTS(text);
+    if (!spoken) return;
     this.activeSpeakCount += 1;
     const opts: Parameters<TextToSpeechLike['speak']>[0] = {
-      text,
+      text: spoken,
       lang: this.ttsLang,
       queueStrategy: 1 /* Add */,
     };
