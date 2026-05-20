@@ -202,6 +202,10 @@ export class ChatStreamService {
     thinking?: boolean;
     forceThinking?: boolean;
     includeDiagnostics?: boolean;
+    /** True when the turn was initiated by voice. The orchestrator
+     *  uses it to run an STT-correction LLM call before the
+     *  assessment round. */
+    fromVoice?: boolean;
     images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
     onEvent: (event: ChatStreamEvent) => void;
@@ -397,6 +401,7 @@ export class ChatStreamService {
     thinking?: boolean;
     forceThinking?: boolean;
     includeDiagnostics?: boolean;
+    fromVoice?: boolean;
     images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
   }): SubmitTurnRequest {
@@ -427,6 +432,7 @@ export class ChatStreamService {
         ...(args.thinking === undefined ? {} : { thinking: args.thinking }),
         ...(args.forceThinking ? { forceThinking: true } : {}),
         ...(args.includeDiagnostics ? { includeDiagnostics: true } : {}),
+        ...(args.fromVoice ? { fromVoice: true } : {}),
       },
     };
   }

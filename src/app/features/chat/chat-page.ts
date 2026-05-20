@@ -321,6 +321,7 @@ export class ChatPage {
     void this.session.sendStream(trimmed, {
       forceThinking: event.forceThinking,
       images: event.images,
+      ...(event.fromVoice ? { fromVoice: true } : {}),
     });
   }
 

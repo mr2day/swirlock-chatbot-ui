@@ -122,6 +122,10 @@ export interface SubmitTurnRequest {
     includeDiagnostics?: boolean;
     thinking?: boolean;
     forceThinking?: boolean;
+    /** True when the turn was initiated by voice. Orchestrator runs
+     *  an STT-correction LLM call before the assessment round so
+     *  transcription errors don't propagate into the answer. */
+    fromVoice?: boolean;
   };
 }
 

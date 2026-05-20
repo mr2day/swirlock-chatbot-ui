@@ -384,6 +384,10 @@ export class SessionService {
     options: {
       forceThinking?: boolean;
       images?: { id: string; dataUrl: string; mimeType: string; name: string }[];
+      /** True when this turn was initiated by the voice flow. The
+       *  orchestrator runs an STT-correction LLM call before the
+       *  assessment round so transcription errors don't propagate. */
+      fromVoice?: boolean;
     } = {},
   ): Promise<void> {
     const sessionId = this._activeId();
@@ -446,6 +450,7 @@ export class SessionService {
       text,
       forceThinking: options.forceThinking === true,
       includeDiagnostics: true,
+      ...(options.fromVoice ? { fromVoice: true } : {}),
       ...(images.length > 0 ? { images } : {}),
       ...(userLocation ? { userLocation } : {}),
       onEvent: (evt) => {

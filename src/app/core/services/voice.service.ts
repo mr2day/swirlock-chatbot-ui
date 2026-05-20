@@ -238,6 +238,14 @@ export class VoiceService {
   private currentPartial = '';
   private ttsBuffer = '';
   private activeSpeakCount = 0;
+  /** Chain of in-flight speak() calls. Each new dispatchSpeak
+   *  appends to the chain so the next call only starts after the
+   *  previous one fully resolves. Without this, fire-and-forget
+   *  speak() calls relied on the plugin's QueueStrategy.Add to
+   *  serialize them — which on some Android engines glitches mid-
+   *  response (the voice cuts to a different variant or pitches
+   *  weirdly between sentences). */
+  private speakChain: Promise<unknown> = Promise.resolve();
   /** Language to use when next startRecording fires. Set by
    *  noteUserText whenever the user types or sends. Android can't
    *  change the recognizer language mid-session, so this only
@@ -420,19 +428,29 @@ export class VoiceService {
 
   /** Streaming-TTS chunk. Composer calls this for every assistant
    *  chunk while state is 'speaking'. Sentence-buffer + queue.
-   *  Detects the response language from the first ~80 chars and
-   *  locks it (plus a gender-matched voice for the active persona)
-   *  so we don't switch voices mid-paragraph. */
+   *  Detects the response language and locks it (plus a
+   *  gender-matched voice for the active persona) so we don't
+   *  switch voices mid-paragraph. The lock fires either when the
+   *  buffer reaches the threshold OR when the first sentence is
+   *  about to be flushed — whichever comes first. */
   async speakChunk(chunk: string): Promise<void> {
     if (this.state() !== 'speaking') return;
     if (!this.tts) return;
     this.ttsBuffer += chunk;
-    if (!this.ttsLangLocked && this.ttsBuffer.length >= 80) {
-      this.ttsLang = detectLang(this.ttsBuffer);
-      this.ttsVoiceIndex = await this.pickVoiceIndex(this.ttsLang);
-      this.ttsLangLocked = true;
+    if (!this.ttsLangLocked && this.ttsBuffer.length >= 30) {
+      await this.lockTtsLang();
     }
     await this.drainSentences(false);
+  }
+
+  /** Locks the response's language + gender-matched voice. Called
+   *  before any dispatch fires; ensures every sentence in the
+   *  response uses the same voice. */
+  private async lockTtsLang(): Promise<void> {
+    if (this.ttsLangLocked) return;
+    this.ttsLang = detectLang(this.ttsBuffer);
+    this.ttsVoiceIndex = await this.pickVoiceIndex(this.ttsLang);
+    this.ttsLangLocked = true;
   }
 
   /** End of stream: flush any remaining buffer, await all queued
@@ -441,13 +459,7 @@ export class VoiceService {
   async finalizeReply(): Promise<void> {
     if (this.state() !== 'speaking') return;
     if (!this.tts) return;
-    // If we never accumulated enough to lock a language, finalize
-    // the detection now from whatever we have.
-    if (!this.ttsLangLocked) {
-      this.ttsLang = detectLang(this.ttsBuffer);
-      this.ttsVoiceIndex = await this.pickVoiceIndex(this.ttsLang);
-      this.ttsLangLocked = true;
-    }
+    if (!this.ttsLangLocked) await this.lockTtsLang();
     await this.drainSentences(true);
     while (this.activeSpeakCount > 0) {
       await new Promise((r) => setTimeout(r, 100));
@@ -474,6 +486,7 @@ export class VoiceService {
       const match = this.ttsBuffer.match(SENTENCE_BOUNDARY);
       if (!match) {
         if (forceFlush && this.ttsBuffer.trim().length > 0) {
+          if (!this.ttsLangLocked) await this.lockTtsLang();
           this.dispatchSpeak(this.ttsBuffer.trim());
           this.ttsBuffer = '';
         }
@@ -485,6 +498,9 @@ export class VoiceService {
       if (piece.length < MIN_CHUNK_CHARS && !forceFlush) {
         return;
       }
+      // Lock BEFORE the very first dispatch so the entire response
+      // uses a single, consistent voice.
+      if (!this.ttsLangLocked) await this.lockTtsLang();
       this.dispatchSpeak(piece);
       this.ttsBuffer = remainder;
     }
@@ -503,65 +519,117 @@ export class VoiceService {
       queueStrategy: 1 /* Add */,
     };
     if (this.ttsVoiceIndex !== undefined) opts.voice = this.ttsVoiceIndex;
-    void this.tts
-      .speak(opts)
+    // Serialize through speakChain: each speak() awaits the prior
+    // one. Guarantees the voice setting doesn't change mid-response.
+    this.speakChain = this.speakChain
+      .catch(() => {
+        /* swallow the previous one's error; we already logged it */
+      })
+      .then(() => this.tts!.speak(opts))
       .catch((err) => console.error('[voice] speak failed', err))
       .finally(() => {
         this.activeSpeakCount = Math.max(0, this.activeSpeakCount - 1);
       });
   }
 
+  /** Heuristic gender classifier for a TTS voice name. Returns
+   *  'male' / 'female' / null. The 'null' case is important: it
+   *  means we couldn't confidently identify the voice's gender, in
+   *  which case the picker prefers to NOT pass a voice index at all
+   *  and let the engine use its own default for the language (the
+   *  worst case is no gender match, never a wrong-gender match). */
+  private voiceGender(name: string): 'male' | 'female' | null {
+    const n = name.toLowerCase();
+    // Google TTS internal IDs: "xx-XX-x-IOL-local" etc. The 4th
+    // segment carries Google's variant code. Empirically observed:
+    //   iol / ios / iog / iof / ioa  → female
+    //   iom / iod / ioe / iob / ioc  → male
+    // Variants with 'h' or 'k' suffix are usually higher-quality
+    // local-only versions of the same gendered voice.
+    const googleMatch = n.match(/-x-(io[a-z])(?:-|$)/);
+    if (googleMatch) {
+      const code = googleMatch[1];
+      if (['iol', 'ios', 'iog', 'iof', 'ioa', 'ioh', 'iok'].includes(code)) {
+        return 'female';
+      }
+      if (['iom', 'iod', 'ioe', 'iob', 'ioc'].includes(code)) {
+        return 'male';
+      }
+    }
+    // Explicit gender words in the name.
+    if (/\bfemale\b|\bfeminin/.test(n)) return 'female';
+    if (/\bmale\b|\bmascul/.test(n)) return 'male';
+    // Common Western female / male first names that Apple/Samsung/etc.
+    // sometimes use as voice display names.
+    const femaleNames = [
+      'samantha', 'karen', 'tessa', 'moira', 'allison', 'susan',
+      'maria', 'anna', 'sofia', 'monica', 'celine', 'audrey', 'amelie',
+      'ioana', 'natalia', 'paulina', 'agata', 'martina', 'giulia',
+      'laila', 'amalia', 'elena', 'monika', 'kalliope', 'satu',
+    ];
+    const maleNames = [
+      'daniel', 'alex', 'tom', 'fred', 'james', 'peter', 'paul',
+      'mark', 'george', 'mateo', 'jorge', 'andre', 'francesco', 'pietro',
+      'andrei', 'jacek', 'krzysztof', 'kostas', 'mikko', 'henrik',
+      'aleksander', 'ivan', 'dimitri',
+    ];
+    if (femaleNames.some((nm) => n.includes(nm))) return 'female';
+    if (maleNames.some((nm) => n.includes(nm))) return 'male';
+    return null;
+  }
+
   /** Returns the index (in TextToSpeech.getSupportedVoices output) of
    *  the best voice for the given BCP 47 language tag, matching the
-   *  active persona's gender when possible. Best-effort heuristic by
-   *  voice name — Android TTS voices don't carry explicit gender
-   *  metadata, so we match against common gendered-name patterns. */
+   *  active persona's gender. Returns undefined if no voice can be
+   *  confidently matched — caller then omits the voice param so the
+   *  engine uses its own default voice for that language (which is
+   *  always usable, even if its gender doesn't match the persona).
+   *  This avoids the catastrophic case of picking a confidently-wrong
+   *  voice. */
   private async pickVoiceIndex(lang: string): Promise<number | undefined> {
     if (!this.tts) return undefined;
     if (!this.cachedVoices) {
       try {
         const result = await this.tts.getSupportedVoices();
         this.cachedVoices = result?.voices ?? [];
+        // Log once so we can audit what the device reports and tune
+        // the heuristic when a new device or engine appears.
+        console.log(
+          '[voice] available voices:',
+          this.cachedVoices.map((v) => ({ name: v.name, lang: v.lang })),
+        );
       } catch {
         this.cachedVoices = [];
       }
     }
     if (this.cachedVoices.length === 0) return undefined;
 
-    const gender = this.personas.active().gender;
+    const wantedGender = this.personas.active().gender;
     const langPrefix = lang.toLowerCase().slice(0, 2);
     const matching = this.cachedVoices
       .map((v, i) => ({ v, i }))
       .filter(({ v }) => (v.lang ?? '').toLowerCase().startsWith(langPrefix));
     if (matching.length === 0) return undefined;
 
-    const femaleHints = [
-      'female', 'femin', 'femme', 'f-', '-f ',
-      'samantha', 'karen', 'tessa', 'moira', 'allison', 'susan',
-      'maria', 'anna', 'sofia', 'monica', 'celine', 'audrey', 'amelie',
-      'ioana', 'natalia', 'paulina', 'agata', 'martina', 'giulia',
-    ];
-    const maleHints = [
-      'male', 'mascul', 'm-', '-m ',
-      'daniel', 'alex', 'tom', 'fred', 'james', 'peter', 'paul',
-      'mark', 'george', 'mateo', 'jorge', 'andre', 'francesco', 'pietro',
-      'andrei', 'jacek', 'krzysztof', 'kostas',
-    ];
-    const wanted = gender === 'female' ? femaleHints : maleHints;
-    const opposite = gender === 'female' ? maleHints : femaleHints;
+    const classified = matching.map(({ v, i }) => ({
+      v,
+      i,
+      g: this.voiceGender(v.name ?? ''),
+    }));
 
-    const wantedMatch = matching.find(({ v }) =>
-      wanted.some((h) => (v.name ?? '').toLowerCase().includes(h)),
-    );
-    if (wantedMatch) return wantedMatch.i;
+    // Prefer a confidently-gendered match for the wanted gender.
+    // Within that, prefer local (offline) voices, then higher-index
+    // voices (Google often puts higher-quality variants later).
+    const wantedMatches = classified.filter((x) => x.g === wantedGender);
+    if (wantedMatches.length > 0) {
+      const local = wantedMatches.find((x) => x.v.localService);
+      return (local ?? wantedMatches[0]).i;
+    }
 
-    const nonOpposite = matching.find(
-      ({ v }) =>
-        !opposite.some((h) => (v.name ?? '').toLowerCase().includes(h)),
-    );
-    if (nonOpposite) return nonOpposite.i;
-
-    return matching[0].i;
+    // No confident gender match → let the engine pick. The engine's
+    // default voice is generally a sensible choice; better than
+    // forcing a possibly-wrong-gender voice.
+    return undefined;
   }
 
   /** Hard stop — used on session changes or if anything goes wrong. */

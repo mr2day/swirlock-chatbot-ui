@@ -82,10 +82,20 @@ export class Composer {
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
 
   /** Track transcriptReady so we react exactly once per finalized
-   *  voice utterance from the VoiceService. */
+   *  voice utterance from the VoiceService. Initialized at
+   *  construction time to whatever the singleton VoiceService is
+   *  currently reporting — without this, a Composer that mounts
+   *  AFTER a prior voice turn (e.g. after the user switches
+   *  persona) would see transcriptReady() != 0 on its first effect
+   *  run and re-submit the stale transcript. */
   private lastTranscriptReady = 0;
 
   constructor() {
+    // Capture the VoiceService's current counter BEFORE registering
+    // the effect, so this Composer instance treats any pre-existing
+    // transcript as already-consumed. Only NEW utterances bump the
+    // counter past this baseline.
+    this.lastTranscriptReady = this.voice.transcriptReady();
     // VoiceService → composer wiring:
     //   When Android's SpeechRecognizer auto-stops on silence, the
     //   VoiceService bumps `transcriptReady`. We copy the transcript
