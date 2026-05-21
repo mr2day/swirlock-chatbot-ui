@@ -11,7 +11,7 @@ import { AuthService } from './auth.service';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
-import { CAPABILITY_RULES } from '../personas/shared-rules';
+import { CAPABILITY_RULES, INTIMACY_BOUNDARY } from '../personas/shared-rules';
 
 // Per-account localStorage scopes. Pre-auth (dev-token era) keys
 // `gigi.sessions` and `gigi.activeSessionId` are deleted on first boot
@@ -246,7 +246,13 @@ export class SessionService {
       // every persona; pulling them out of each persona file keeps
       // the persona templates short and means one edit propagates
       // everywhere. See personas/shared-rules.ts.
-      const systemPrompt = `${filled}\n\n${CAPABILITY_RULES}`;
+      // Capability rules (image-awareness + no-name-prefix) and the
+      // intimacy boundary (default neutral address, no endearments
+      // toward the user) apply to every persona; pulling them out
+      // of each persona file keeps the templates focused on voice
+      // and means one edit propagates everywhere. See
+      // personas/shared-rules.ts.
+      const systemPrompt = `${filled}\n\n${CAPABILITY_RULES}\n\n${INTIMACY_BOUNDARY}`;
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,
