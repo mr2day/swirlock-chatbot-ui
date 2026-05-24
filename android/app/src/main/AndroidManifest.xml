@@ -1,8 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- allowBackup=false: with the default true, Android Auto Backup
+         restores private app data (including the Capacitor live-update
+         plugin's "active bundle" pointer) seconds after the user
+         reinstalls the APK. The result was the visible "I just
+         installed the new APK but the app shows the OLD version
+         until I tap Update" experience: the new APK's baked-in
+         bundle was instantly replaced by the auto-restored older
+         live-update bundle. With backup disabled, a real uninstall
+         wipes the data and the next install boots truly clean.
+         dataExtractionRules / fullBackupContent are intentionally
+         not present — when allowBackup is false, those don't apply. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

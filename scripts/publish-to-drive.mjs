@@ -76,13 +76,34 @@ function main() {
 
   const apkBytes = fs.statSync(APK_SRC).size;
   const apkMb = (apkBytes / 1024 / 1024).toFixed(1);
-  const stampedApkName = `gigi-${bundle}.apk`;
-  const stampedApkPath = path.join(DRIVE_DEST, stampedApkName);
-  const latestApkPath = path.join(DRIVE_DEST, 'gigi-latest.apk');
-  const notesPath = path.join(DRIVE_DEST, 'gigi-latest-notes.txt');
+  const apkName = `gigi-${bundle}.apk`;
+  const apkPath = path.join(DRIVE_DEST, apkName);
+  const notesPath = path.join(DRIVE_DEST, 'gigi-notes.txt');
 
-  fs.copyFileSync(APK_SRC, stampedApkPath);
-  fs.copyFileSync(APK_SRC, latestApkPath);
+  // Wipe every existing gigi-*.apk in the destination. Previous
+  // builds (especially branch-experiments with non-monotonic version
+  // numbers) created a graveyard of files that confused the human
+  // looking for "the latest" one. Now the folder always holds
+  // exactly one APK at any moment.
+  const wiped = [];
+  for (const entry of fs.readdirSync(DRIVE_DEST)) {
+    if (/^gigi-.*\.apk$/.test(entry)) {
+      try {
+        fs.unlinkSync(path.join(DRIVE_DEST, entry));
+        wiped.push(entry);
+      } catch {
+        /* harmless */
+      }
+    }
+  }
+  // Also remove the old dual-named notes file from the previous
+  // scheme so it doesn't linger as a confusing artefact.
+  const oldNotes = path.join(DRIVE_DEST, 'gigi-latest-notes.txt');
+  if (fs.existsSync(oldNotes)) {
+    try { fs.unlinkSync(oldNotes); } catch { /* */ }
+  }
+
+  fs.copyFileSync(APK_SRC, apkPath);
 
   const notes =
     `Gigi the Robot — Android APK\n` +
@@ -92,11 +113,7 @@ function main() {
     `Built:         ${buildDate}\n` +
     `Git commit:    ${commitHash}\n` +
     `APK size:      ${apkMb} MB\n` +
-    `\n` +
-    `Files in this folder:\n` +
-    `  - gigi-latest.apk     (always the freshest build; overwritten each deploy)\n` +
-    `  - ${stampedApkName.padEnd(20)} (this specific build, kept by version)\n` +
-    `  - gigi-latest-notes.txt (this file)\n` +
+    `APK file:      ${apkName}\n` +
     `\n` +
     `Latest UI commits (newest first):\n` +
     `${uiLog || '  (no git history available)'}\n`;
@@ -109,8 +126,10 @@ function main() {
 
   fs.writeFileSync(notesPath, notesWithOrch);
 
-  console.log(`[publish-to-drive] copied APK -> ${stampedApkPath}`);
-  console.log(`[publish-to-drive] copied APK -> ${latestApkPath}`);
+  if (wiped.length > 0) {
+    console.log(`[publish-to-drive] wiped ${wiped.length} old APK(s): ${wiped.join(', ')}`);
+  }
+  console.log(`[publish-to-drive] wrote APK -> ${apkPath}`);
   console.log(`[publish-to-drive] wrote notes -> ${notesPath}`);
 }
 
