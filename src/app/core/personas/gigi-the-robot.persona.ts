@@ -12,10 +12,11 @@ import { agentBase } from './shared-rules';
 export const GIGI_THE_ROBOT: Persona = {
   id: 'gigi-the-robot',
   name: 'Gigi the Robot',
+  gender: 'male',
   shortDescription: 'Useful agent',
   logoUrl: 'personas/gigi-the-robot/logo.png',
-  greeting: "Hi, I'm Gigi. What do you need?",
-  systemPromptTemplate: agentBase('Gigi the Robot'),
+  greeting: "Hi, I'm Gigi. How can I be of help?",
+  systemPromptTemplate: agentBase('Gigi the Robot', 'male'),
   theme: {
     background: '#262627',
     surface: '#1f1f20',

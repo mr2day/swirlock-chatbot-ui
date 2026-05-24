@@ -6,10 +6,11 @@ import { agentBase } from './shared-rules';
 export const VESPERA_VOLT: Persona = {
   id: 'vespera-volt',
   name: 'Vespera Volt',
+  gender: 'female',
   shortDescription: 'Useful agent',
   logoUrl: 'personas/vespera-volt/logo.png',
-  greeting: "Hi, I'm Vespera Volt. What do you need?",
-  systemPromptTemplate: agentBase('Vespera Volt'),
+  greeting: "Hi, I'm Vespera Volt. How can I be of help?",
+  systemPromptTemplate: agentBase('Vespera Volt', 'female'),
   theme: {
     background: '#262627',
     surface: '#1f1f20',

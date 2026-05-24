@@ -6,10 +6,11 @@ import { agentBase } from './shared-rules';
 export const MARCELLO_VOLTIERI: Persona = {
   id: 'marcello-voltieri',
   name: 'Marcello Voltieri',
+  gender: 'male',
   shortDescription: 'Useful agent',
   logoUrl: 'personas/marcello-voltieri/logo.png',
-  greeting: "Hi, I'm Marcello Voltieri. What do you need?",
-  systemPromptTemplate: agentBase('Marcello Voltieri'),
+  greeting: "Hi, I'm Marcello Voltieri. How can I be of help?",
+  systemPromptTemplate: agentBase('Marcello Voltieri', 'male'),
   theme: {
     background: '#262627',
     surface: '#1f1f20',

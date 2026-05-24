@@ -6,10 +6,11 @@ import { agentBase } from './shared-rules';
 export const VIOLETTA_STERLING: Persona = {
   id: 'violetta-sterling',
   name: 'Violetta Sterling',
+  gender: 'female',
   shortDescription: 'Useful agent',
   logoUrl: 'personas/violetta-sterling/logo.png',
-  greeting: "Hi, I'm Violetta Sterling. What do you need?",
-  systemPromptTemplate: agentBase('Violetta Sterling'),
+  greeting: "Hi, I'm Violetta Sterling. How can I be of help?",
+  systemPromptTemplate: agentBase('Violetta Sterling', 'female'),
   theme: {
     background: '#262627',
     surface: '#1f1f20',

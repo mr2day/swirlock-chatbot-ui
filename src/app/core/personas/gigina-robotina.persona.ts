@@ -5,10 +5,11 @@ import { agentBase } from './shared-rules';
 export const GIGINA_ROBOTINA: Persona = {
   id: 'gigina-robotina',
   name: 'Gigina Robotina',
+  gender: 'female',
   shortDescription: 'Useful agent',
   logoUrl: 'personas/gigina-robotina/logo.png',
-  greeting: "Hi, I'm Gigina. What do you need?",
-  systemPromptTemplate: agentBase('Gigina Robotina'),
+  greeting: "Hi, I'm Gigina. How can I be of help?",
+  systemPromptTemplate: agentBase('Gigina Robotina', 'female'),
   theme: {
     background: '#262627',
     surface: '#1f1f20',

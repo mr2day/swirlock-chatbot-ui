@@ -6,10 +6,11 @@ import { agentBase } from './shared-rules';
 export const DUCHESS_NOCTILOCK: Persona = {
   id: 'duchess-noctilock',
   name: 'Duchess Noctilock',
+  gender: 'female',
   shortDescription: 'Useful agent',
   logoUrl: 'personas/duchess-noctilock/logo.png',
-  greeting: "Hi, I'm Duchess Noctilock. What do you need?",
-  systemPromptTemplate: agentBase('Duchess Noctilock'),
+  greeting: "Hi, I'm Duchess Noctilock. How can I be of help?",
+  systemPromptTemplate: agentBase('Duchess Noctilock', 'female'),
   theme: {
     background: '#262627',
     surface: '#1f1f20',

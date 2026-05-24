@@ -11,7 +11,6 @@ import { AuthService } from './auth.service';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
-import { CAPABILITY_RULES, INTIMACY_BOUNDARY } from '../personas/shared-rules';
 
 // Per-account localStorage scopes. Pre-auth (dev-token era) keys
 // `gigi.sessions` and `gigi.activeSessionId` are deleted on first boot
@@ -238,21 +237,17 @@ export class SessionService {
     try {
       const persona = this.persona.active();
       const modelId = await this.stream.getModelId();
-      const filled = persona.systemPromptTemplate.replace(
+      const systemPrompt = persona.systemPromptTemplate.replace(
         /\$\{model\}/g,
         modelId,
       );
-      // Capability rules (image-awareness + no-name-prefix) apply to
-      // every persona; pulling them out of each persona file keeps
-      // the persona templates short and means one edit propagates
-      // everywhere. See personas/shared-rules.ts.
-      // Capability rules (image-awareness + no-name-prefix) and the
-      // intimacy boundary (default neutral address, no endearments
-      // toward the user) apply to every persona; pulling them out
-      // of each persona file keeps the templates focused on voice
-      // and means one edit propagates everywhere. See
-      // personas/shared-rules.ts.
-      const systemPrompt = `${filled}\n\n${CAPABILITY_RULES}\n\n${INTIMACY_BOUNDARY}`;
+      // The 2026-05-24 strip-personas-to-bare-minimum directive
+      // removed the CAPABILITY_RULES and INTIMACY_BOUNDARY appends.
+      // The persona's own template (see shared-rules.agentBase) is
+      // the entire system prompt the orchestrator stores on the
+      // session. The orchestrator still applies LANGUAGE_RULE,
+      // date+location, and search-grounding wrappers at answer time
+      // — those are out of the persona's hands.
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,

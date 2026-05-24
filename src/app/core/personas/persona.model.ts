@@ -42,6 +42,10 @@ export interface Persona {
   id: string;
   /** Display name surfaced everywhere ("Gigi the Robot"). */
   name: string;
+  /** Persona gender — interpolated into the system prompt's
+   *  `Your gender is <gender>` line so the model self-describes
+   *  consistently. */
+  gender: 'male' | 'female';
   /** Short blurb shown next to the avatar. */
   shortDescription: string;
   /** Path under `public/` for the persona's logo image. */
