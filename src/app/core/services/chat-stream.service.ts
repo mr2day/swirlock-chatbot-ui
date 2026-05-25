@@ -78,30 +78,68 @@ export class ChatStreamService {
    * The orchestrator forwards the request to the LLM host and returns
    * the values unchanged. Cached after the first resolution.
    */
-  async getModelInfo(): Promise<{ modelId: string; thinkingSupported: boolean }> {
-    const cachedId = this._modelId();
-    const cachedThinking = this._thinkingSupported();
-    if (cachedId !== null && cachedThinking !== null) {
-      return { modelId: cachedId, thinkingSupported: cachedThinking };
+  async getModelInfo(args?: {
+    backend?: 'ollama' | 'anthropic';
+    force?: boolean;
+  }): Promise<{ modelId: string; thinkingSupported: boolean }> {
+    const backend = args?.backend;
+    const force = args?.force === true;
+    // Backend-targeted queries skip the cache (the cache only tracks
+    // the default backend's info). Force also bypasses the cache.
+    if (!backend && !force) {
+      const cachedId = this._modelId();
+      const cachedThinking = this._thinkingSupported();
+      if (cachedId !== null && cachedThinking !== null) {
+        return { modelId: cachedId, thinkingSupported: cachedThinking };
+      }
+      if (this.modelStatusInflight) return this.modelStatusInflight;
     }
-    if (this.modelStatusInflight) return this.modelStatusInflight;
-    this.modelStatusInflight = this.requestResponse<{
+    const inflight = this.requestResponse<{
       modelId: string;
       thinkingSupported: boolean;
-    }>('model.status', 'model.status', uuid(), {})
+    }>(
+      'model.status',
+      'model.status',
+      uuid(),
+      backend ? { backend } : {},
+    )
       .then((res) => {
-        this._modelId.set(res.modelId);
-        this._thinkingSupported.set(res.thinkingSupported);
+        if (!backend) {
+          this._modelId.set(res.modelId);
+          this._thinkingSupported.set(res.thinkingSupported);
+        }
         return res;
       })
       .finally(() => {
-        this.modelStatusInflight = null;
+        if (!backend) this.modelStatusInflight = null;
       });
-    return this.modelStatusInflight;
+    if (!backend) this.modelStatusInflight = inflight;
+    return inflight;
   }
 
   async getModelId(): Promise<string> {
     return (await this.getModelInfo()).modelId;
+  }
+
+  /**
+   * Asks the orchestrator for the LLM Host's configured backends.
+   * Used by `BackendService` to populate the UI's model picker.
+   */
+  async listBackends(): Promise<{
+    defaultBackend: 'ollama' | 'anthropic';
+    backends: Array<{
+      name: 'ollama' | 'anthropic';
+      displayName: string;
+      modelId: string;
+      location: 'local' | 'cloud';
+    }>;
+  }> {
+    return this.requestResponse(
+      'backends.list',
+      'backends.list',
+      uuid(),
+      {},
+    );
   }
 
   createSession(args: {
@@ -204,6 +242,13 @@ export class ChatStreamService {
     includeDiagnostics?: boolean;
     images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
+    /**
+     * Optional LLM backend selector. The orchestrator forwards this
+     * to the LLM Host's `infer` so a single host instance with
+     * multiple backends configured routes this turn to the chosen
+     * one. When omitted, the LLM Host uses its env-configured default.
+     */
+    backend?: 'ollama' | 'anthropic';
     onEvent: (event: ChatStreamEvent) => void;
     onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
   }): StreamHandle {
@@ -399,6 +444,7 @@ export class ChatStreamService {
     includeDiagnostics?: boolean;
     images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
+    backend?: 'ollama' | 'anthropic';
   }): SubmitTurnRequest {
     const parts: SubmitTurnRequest['message']['parts'] = [];
     if (args.text.length > 0) {
@@ -423,6 +469,7 @@ export class ChatStreamService {
         occurredAt: new Date().toISOString(),
       },
       ...(args.userLocation ? { userLocation: args.userLocation } : {}),
+      ...(args.backend ? { backend: args.backend } : {}),
       options: {
         ...(args.thinking === undefined ? {} : { thinking: args.thinking }),
         ...(args.forceThinking ? { forceThinking: true } : {}),

@@ -1,0 +1,54 @@
+@if (backend.selected(); as current) {
+  @if (hasChoice()) {
+    <button
+      class="trigger"
+      type="button"
+      (click)="toggle()"
+      [attr.aria-expanded]="open()"
+      aria-haspopup="listbox"
+      [title]="'Switch model (' + current.displayName + ')'"
+    >
+      <span class="trigger-label">{{ current.displayName }}</span>
+      <svg
+        class="trigger-chevron"
+        viewBox="0 0 24 24"
+        width="12"
+        height="12"
+        aria-hidden="true"
+        [class.flipped]="open()"
+      >
+        <path
+          d="M6 9l6 6 6-6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+
+    @if (open()) {
+      <ul class="menu" role="listbox">
+        @for (b of backend.backends(); track b.name) {
+          <li>
+            <button
+              class="menu-item"
+              type="button"
+              role="option"
+              [class.active]="b.name === current.name"
+              (click)="select(b.name)"
+            >
+              <span class="menu-label">{{ b.displayName }}</span>
+              @if (b.name === current.name) {
+                <span class="menu-check" aria-hidden="true">✓</span>
+              }
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  } @else {
+    <span class="static-label">{{ current.displayName }}</span>
+  }
+}

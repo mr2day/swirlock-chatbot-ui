@@ -11,6 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { BackendService } from '../../core/services/backend.service';
 import { ChatStreamService } from '../../core/services/chat-stream.service';
 import { SessionService } from '../../core/services/session.service';
 import { PersonaService } from '../../core/services/persona.service';
@@ -35,6 +36,7 @@ export class ChatPage {
   protected readonly session = inject(SessionService);
   protected readonly persona = inject(PersonaService);
   private readonly stream = inject(ChatStreamService);
+  private readonly backend = inject(BackendService);
   private readonly router = inject(Router);
 
   protected readonly thinkingSupported = this.stream.thinkingSupported;
@@ -93,6 +95,12 @@ export class ChatPage {
     // "Force thinking" checkbox). Memoized in ChatStreamService — calling
     // it on every chat-page mount is fine.
     void this.stream.getModelInfo();
+
+    // Fetch the LLM Host's configured backends so the model picker can
+    // render. Silently no-ops on older orchestrators that don't speak
+    // backends.list — message bubbles then fall back to the static
+    // model-id label.
+    void this.backend.refresh();
 
     // Whenever the route's sessionId changes, ask SessionService to load
     // the matching session. If the URL has no sessionId, just clear the

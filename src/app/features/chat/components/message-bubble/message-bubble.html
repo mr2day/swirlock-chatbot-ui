@@ -15,7 +15,9 @@
     <div class="author">
       @if (message().role === 'assistant') {
         <span>{{ persona().name }}</span>
-        @if (modelId(); as id) {
+        @if (backendsLoaded()) {
+          <app-model-switcher class="model-switcher" />
+        } @else if (modelId(); as id) {
           <span class="model-id">{{ id }}</span>
         }
       } @else {

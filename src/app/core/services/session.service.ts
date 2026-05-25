@@ -8,6 +8,7 @@ import type { PersistedImageRef } from '../models/chat.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
 import { AuthService } from './auth.service';
+import { BackendService } from './backend.service';
 import { ChatStreamService, StreamHandle } from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
@@ -117,6 +118,7 @@ export class SessionService {
   private readonly persona = inject(PersonaService);
   private readonly location = inject(LocationService);
   private readonly auth = inject(AuthService);
+  private readonly backend = inject(BackendService);
   private readonly cfg = inject(RUNTIME_CONFIG);
 
   private readonly _sessions = signal<SessionSummary[]>([]);
@@ -442,6 +444,8 @@ export class SessionService {
         ? (await this.location.fetchCurrentLocation()) ?? undefined
         : undefined;
 
+    const selectedBackend = this.backend.selectedName();
+
     this.currentStream = this.stream.openTurn({
       sessionId,
       text,
@@ -449,6 +453,7 @@ export class SessionService {
       includeDiagnostics: true,
       ...(images.length > 0 ? { images } : {}),
       ...(userLocation ? { userLocation } : {}),
+      ...(selectedBackend ? { backend: selectedBackend } : {}),
       onEvent: (evt) => {
         switch (evt.type) {
           case 'turn.accepted':

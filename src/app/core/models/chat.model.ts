@@ -116,6 +116,12 @@ export interface SubmitTurnRequest {
   clientTurnId?: string;
   message: { parts: InputPart[]; occurredAt: string };
   userLocation?: UserLocation;
+  /**
+   * Optional LLM backend selector. When set, the orchestrator forwards
+   * it to the LLM Host so a host with multiple backends routes this
+   * turn accordingly. Omit to let the host use its env default.
+   */
+  backend?: 'ollama' | 'anthropic';
   options?: {
     responseMode?: 'blocking';
     maxOutputTokens?: number;
