@@ -22,7 +22,7 @@ module.exports = {
         OIDC_CLIENT_ID: 'swirlock-chatbot-ui',
         OIDC_REDIRECT_URI: 'https://gigi-the-robot.com/auth/callback',
         OIDC_POST_LOGOUT_REDIRECT_URI: 'https://gigi-the-robot.com/auth/logout-callback',
-        OIDC_RESOURCE: 'http://127.0.0.1:3200',
+        OIDC_RESOURCE: 'https://agent.gigi-the-robot.com',
       },
     },
   ],
