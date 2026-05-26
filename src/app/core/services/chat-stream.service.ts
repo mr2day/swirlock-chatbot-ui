@@ -210,12 +210,11 @@ export class ChatStreamService {
   }): Promise<CreateSessionResponse> {
     const id = args.correlationId ?? uuid();
     // No `defaultBackend` sent — the agent uses its
-    // AGENT_DEFAULT_BACKEND when the client omits it, which is the
-    // right behaviour: new sessions inherit the runtime's default,
-    // and the user can override per-session afterwards via
-    // setSessionBackend.
+    // AGENT_DEFAULT_BACKEND when the client omits it. No `title`
+    // sent — the agent auto-derives it from the first user message
+    // and writes it onto the session row. Until that first message
+    // lands, the title is null and the sidebar shows "New chat".
     return this.request(id, 'session.create', 'session.created', {
-      title: args.persona.name,
       systemPrompt: args.persona.systemPrompt,
     }).then((reply) => {
       const session = reply['session'] as {

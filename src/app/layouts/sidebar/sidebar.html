@@ -1,5 +1,5 @@
 <div class="sidebar">
-  <app-persona-switcher />
+  <app-persona-switcher [showTagline]="true" />
   @if (session.hasActiveSession() && backend.loaded()) {
     <app-model-switcher class="sidebar-model-switcher" />
   }

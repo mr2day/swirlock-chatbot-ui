@@ -210,10 +210,16 @@ export class SessionService {
   }
 
   /**
-   * Fetches the active persona's sessions from the orchestrator and
-   * writes them into the local store. Sessions live server-side; the
-   * localStorage copy is a per-(user, persona) cache that's wrong as
-   * soon as the user signs in on a different device.
+   * Refreshes the per-persona sidebar list from the agent. The agent
+   * is persona-blind today (every session belongs to (client, user)
+   * only, not (client, user, persona)), so the server returns all of
+   * this user's sessions regardless of which persona is active. We
+   * intersect the server list with the IDs we have in the local
+   * per-persona cache — sessions we ourselves created under THIS
+   * persona — and discard the rest. The trade-off: sessions created
+   * on a different device don't appear until they're opened
+   * explicitly via URL. Multi-device cross-persona sync would need a
+   * server-side metadata column (followup).
    */
   private async refreshSessionsFromServer(
     sub: string,
@@ -223,7 +229,11 @@ export class SessionService {
       const { sessions } = await this.stream.listSessions({ personaId });
       if (this.currentSub() !== sub) return;
       if (this.persona.activeId() !== personaId) return;
-      this._sessions.set(sessions);
+      const known = new Set(
+        this.loadSessions(sub, personaId).map((s) => s.sessionId),
+      );
+      const filtered = sessions.filter((s) => known.has(s.sessionId));
+      this._sessions.set(filtered);
       this.persistSessions();
     } catch (err) {
       console.warn('[session] failed to load sessions from server', err);
@@ -251,22 +261,19 @@ export class SessionService {
     }
     try {
       const persona = this.persona.active();
-      const modelId = await this.stream.getModelId();
-      const systemPrompt = persona.systemPromptTemplate.replace(
-        /\$\{model\}/g,
-        modelId,
-      );
-      // The 2026-05-24 strip-personas-to-bare-minimum directive
-      // removed the CAPABILITY_RULES and INTIMACY_BOUNDARY appends.
-      // The persona's own template (see shared-rules.agentBase) is
-      // the entire system prompt the orchestrator stores on the
-      // session. The orchestrator still applies LANGUAGE_RULE,
-      // date+location, and search-grounding wrappers at answer time
-      // — those are out of the persona's hands.
+      // Pass the template verbatim — the `${model}` placeholder is
+      // substituted server-side at every turn so a mid-conversation
+      // backend switch immediately reflects in persona introspection.
+      // Title is omitted at create time: the agent auto-derives it
+      // from the first user message and stamps it on the session row.
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,
-        persona: { id: persona.id, name: persona.name, systemPrompt },
+        persona: {
+          id: persona.id,
+          name: persona.name,
+          systemPrompt: persona.systemPromptTemplate,
+        },
       });
       const sessionId = res.data.sessionId;
       const summary: SessionSummary = {

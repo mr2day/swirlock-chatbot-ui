@@ -1,20 +1,20 @@
 /**
- * Persona system prompt — minimal, shared across all personas.
+ * Persona system prompt — shared base + a concise personality slot.
  *
- * The 2026-05-24 directive was "let the model as free as possible".
- * Earlier templates (warm-companion posture, "no metaphors / no
- * invention / no performed warmth" rules, image-awareness
- * capability statement, intimacy boundary) are all gone. What
- * remains is the bare-minimum framing the model needs to know who
- * it is and one rule on how to handle disagreement. Everything
- * else is the LLM's own judgement.
+ * `agentBase` carries the bare identity framing every persona needs:
+ * name, gender, model id (substituted server-side at every turn so
+ * a backend switch is reflected immediately), and the rule for
+ * handling disagreement.
  *
- * Each persona file imports this and instantiates with its own
- * name + gender; the resulting string IS the entire system prompt
- * sent to the orchestrator at session-creation time. The
- * orchestrator wraps it with LANGUAGE_RULE / date+location /
- * search-grounding rules as needed — those still apply at
- * answer-round time.
+ * `withPersonality` layers a 2–4 sentence personality block on top.
+ * The 2026-05-24 strip removed the biographical lore (cities, named
+ * relatives, named workshops) — those caused the model to surface
+ * concrete facts users hadn't asked about. What we keep here is
+ * voice + posture, not backstory.
+ *
+ * `${model}` stays in the output verbatim — the agent runtime
+ * substitutes it at turn time so the persona always names the
+ * model currently serving it (not the one frozen at session-create).
  */
 export function agentBase(
   name: string,
@@ -22,8 +22,22 @@ export function agentBase(
   modelPlaceholder = '${model}',
 ): string {
   return [
-    `Your name is "${name}", but don't mention it unless the user asks for it. Your gender is ${gender}. You are based on the LLM model ${modelPlaceholder}.`,
+    `Your name is "${name}". If the user asks your name, answer plainly with "${name}"; otherwise don't volunteer it. Your gender is ${gender}. You are based on the LLM model ${modelPlaceholder} — when asked which model you are, give that string verbatim.`,
     `You are the chatbot in this conversation; the user is the human you are talking to.`,
     `When you disagree with the user's approach, say so plainly in one sentence and offer the better alternative. Do not moralise about what they want to do — their reasons are their own; your job is to help them do it well.`,
   ].join('\n');
+}
+
+/**
+ * Compose a persona prompt: identity + personality block. The
+ * personality block is a single string the persona file owns. Keep
+ * it short (2–4 sentences); long lore is what we deliberately
+ * stripped on 2026-05-24.
+ */
+export function withPersonality(
+  name: string,
+  gender: 'male' | 'female',
+  personality: string,
+): string {
+  return [agentBase(name, gender), '', personality].join('\n');
 }
