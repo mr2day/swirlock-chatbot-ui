@@ -5,9 +5,13 @@
  * Reads the freshly-built Angular bundle from
  * `dist/swirlock-chatbot-ui/browser`, zips it, computes a sha256,
  * writes a manifest.json that points the @capgo/capacitor-updater
- * plugin at the new bundle, and copies both into the chat
- * orchestrator's `data/updates/` directory so api.gigi-the-robot.com
- * serves them.
+ * plugin at the new bundle, and copies both into the agent runtime's
+ * `data/updates/` directory so api.gigi-the-robot.com serves them.
+ *
+ * Previously lived under swirlock-chat-orchestrator/data/updates;
+ * moved to swirlock-agent-runtime/data/updates as part of retiring
+ * the orchestrator (the agent now serves the /updates endpoint that
+ * Capacitor's plugin polls).
  *
  * Assumes `ng build` has already run. `deploy.sh` calls this script
  * after its `npm run build` step.
@@ -32,8 +36,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(__dirname, '..');
 const distDir = path.join(uiRoot, 'dist', 'swirlock-chatbot-ui', 'browser');
-const orchestratorRoot = path.resolve(uiRoot, '..', 'swirlock-chat-orchestrator');
-const updatesDir = path.join(orchestratorRoot, 'data', 'updates');
+const agentRuntimeRoot = path.resolve(uiRoot, '..', 'swirlock-agent-runtime');
+const updatesDir = path.join(agentRuntimeRoot, 'data', 'updates');
 
 const PUBLIC_BASE_URL = 'https://api.gigi-the-robot.com/updates';
 const KEEP_LAST_N_BUNDLES = 10;

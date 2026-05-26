@@ -52,6 +52,11 @@ export const RUNTIME_CONFIG = new InjectionToken<RuntimeConfig>('RUNTIME_CONFIG'
  * file OR by adding a /config.json file under public/.
  */
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+  // swirlock-agent-runtime exposed via Cloudflare Tunnel at
+  // wss://api.gigi-the-robot.com (the same hostname the old
+  // orchestrator served, now re-pointed at the agent). The
+  // agent.gigi-the-robot.com hostname also resolves to the same
+  // backend for explicit routing if needed later.
   wsBaseUrl: 'wss://api.gigi-the-robot.com',
   appId: 'gigi-the-robot-ui',
   clientChannel: 'web',
@@ -60,5 +65,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   oidcClientId: 'swirlock-chatbot-ui',
   oidcRedirectUri: 'https://gigi-the-robot.com/auth/callback',
   oidcPostLogoutRedirectUri: 'https://gigi-the-robot.com/auth/logout-callback',
-  oidcResource: 'http://127.0.0.1:3200',
+  // Audience for IdP-issued access tokens. Matches the agent's
+  // IDP_AUDIENCE and the IdP client's `resource` field. Production
+  // tokens carry `aud: "https://agent.gigi-the-robot.com"`.
+  oidcResource: 'https://agent.gigi-the-robot.com',
 };

@@ -1,18 +1,32 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
 import type {
-  CreateSessionRequest,
   CreateSessionResponse,
   DeleteSessionResponse,
   GetSessionResponse,
-  SubmitTurnRequest,
+  PersistedMessage,
 } from '../models/chat.model';
 import type { ApiMeta } from '../models/api-meta.model';
-import type {
-  ChatStreamEvent,
-  SubmitTurnStreamMessage,
-} from '../models/stream-event.model';
+import type { ChatStreamEvent } from '../models/stream-event.model';
 import { AuthService } from './auth.service';
+
+/**
+ * ChatStreamService — talks to swirlock-agent-runtime over a single
+ * persistent WebSocket at `${wsBaseUrl}/v1/agent`.
+ *
+ * The new agent's protocol is materially different from the old
+ * orchestrator's v5 channel: first-frame `{type: 'auth', token}`
+ * instead of `?token=` query; flat envelope `{type, inReplyTo?, ...}`
+ * instead of `{type, correlationId, payload}`; turn events carry
+ * `turnId` instead of `correlationId`; no persona / no retrieval /
+ * no location / no images on the wire.
+ *
+ * To keep the rest of the UI unchanged we translate at this boundary:
+ * the public method surface and the `ChatStreamEvent` union are
+ * unchanged; SessionService keeps working against the same shapes.
+ * Where the new agent has nothing to say (turn.queued, turn.retrieval,
+ * turn.location_required), the corresponding events simply never fire.
+ */
 
 function uuid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -29,91 +43,105 @@ export interface StreamHandle {
   cancel(): void;
 }
 
-interface V4Envelope<TPayload = unknown> {
+type AgentBackend = 'anthropic' | 'mistral-online' | 'mistral-local';
+
+interface ServerFrame {
   type: string;
-  correlationId: string;
-  payload?: TPayload;
-  error?: {
-    code: string;
-    message: string;
-    retryable: boolean;
-    details?: Record<string, unknown>;
-  };
+  inReplyTo?: string;
+  [key: string]: unknown;
+}
+
+interface PendingRequest<T> {
+  successType: string;
+  resolve: (frame: ServerFrame) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 interface ActiveTurn {
   sessionId: string;
-  correlationId: string;
+  turnId: string;
   onEvent: (event: ChatStreamEvent) => void;
   onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
-}
-
-interface PendingRequest<TPayload> {
-  successType: string;
-  resolve: (envelope: V4Envelope<TPayload>) => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  // Accumulators so we can emit a complete turn.done payload at the
+  // end (the new agent's turn.done carries only usage + finishReason,
+  // not the assistant text — that text was streamed via text_delta).
+  assistantText: string;
+  assistantCreatedAt: string;
+  // Citation buffer. The new agent has no top-level citations field
+  // on turn.done; search_web tool results carry the sources. We
+  // collect them across every search_web call in the turn, dedup by
+  // URL, and emit as CitationRef[] on the synthesized turn.done.
+  citations: Map<string, { title: string; url: string }>;
 }
 
 @Injectable({ providedIn: 'root' })
 export class ChatStreamService {
   private readonly cfg = inject(RUNTIME_CONFIG);
   private readonly auth = inject(AuthService);
+
   private ws: WebSocket | null = null;
   private connecting: Promise<WebSocket> | null = null;
-  private readonly queued: V4Envelope[] = [];
+  private authenticated = false;
+
+  // Frames queued before the socket is open / authenticated.
+  private readonly preauthQueue: unknown[] = [];
+
+  // Outstanding command->reply correlations.
   private readonly pending = new Map<string, PendingRequest<unknown>>();
+
+  // At most one streaming turn at a time. Maps the active turnId so
+  // we can route incoming text_delta / tool_use / done frames.
   private activeTurn: ActiveTurn | null = null;
+
   private readonly _modelId = signal<string | null>(null);
   private readonly _thinkingSupported = signal<boolean | null>(null);
   readonly modelId = this._modelId.asReadonly();
   readonly thinkingSupported = this._thinkingSupported.asReadonly();
-  private modelStatusInflight: Promise<{
+  private modelInfoInflight: Promise<{
     modelId: string;
     thinkingSupported: boolean;
   }> | null = null;
 
   /**
-   * Asks the orchestrator for the LLM model identity + capability flags.
-   * The orchestrator forwards the request to the LLM host and returns
-   * the values unchanged. Cached after the first resolution.
+   * Returns the LLM model identity + capability flags. The new agent
+   * doesn't expose a model.status endpoint; we synthesize from the
+   * default Anthropic Haiku build the agent runtime is configured
+   * with. `thinkingSupported` is false until the agent gates extended
+   * thinking through.
    */
   async getModelInfo(args?: {
-    backend?: 'ollama' | 'anthropic';
+    backend?: AgentBackend;
     force?: boolean;
   }): Promise<{ modelId: string; thinkingSupported: boolean }> {
-    const backend = args?.backend;
     const force = args?.force === true;
-    // Backend-targeted queries skip the cache (the cache only tracks
-    // the default backend's info). Force also bypasses the cache.
-    if (!backend && !force) {
-      const cachedId = this._modelId();
-      const cachedThinking = this._thinkingSupported();
-      if (cachedId !== null && cachedThinking !== null) {
-        return { modelId: cachedId, thinkingSupported: cachedThinking };
+    if (!force) {
+      const cached = this._modelId();
+      const cachedThink = this._thinkingSupported();
+      if (cached !== null && cachedThink !== null) {
+        return { modelId: cached, thinkingSupported: cachedThink };
       }
-      if (this.modelStatusInflight) return this.modelStatusInflight;
+      if (this.modelInfoInflight) return this.modelInfoInflight;
     }
-    const inflight = this.requestResponse<{
-      modelId: string;
-      thinkingSupported: boolean;
-    }>(
-      'model.status',
-      'model.status',
-      uuid(),
-      backend ? { backend } : {},
-    )
-      .then((res) => {
-        if (!backend) {
-          this._modelId.set(res.modelId);
-          this._thinkingSupported.set(res.thinkingSupported);
+    const inflight = this.listBackends()
+      .then(({ backends, defaultBackend }) => {
+        const chosen =
+          backends.find((b) => b.name === (args?.backend ?? defaultBackend)) ??
+          backends[0];
+        const info = {
+          modelId: chosen?.modelId ?? 'claude-haiku-4-5-20251001',
+          thinkingSupported: false,
+        };
+        if (!args?.backend) {
+          this._modelId.set(info.modelId);
+          this._thinkingSupported.set(info.thinkingSupported);
         }
-        return res;
+        return info;
       })
       .finally(() => {
-        if (!backend) this.modelStatusInflight = null;
+        if (!args?.backend) this.modelInfoInflight = null;
       });
-    if (!backend) this.modelStatusInflight = inflight;
+    if (!args?.backend) this.modelInfoInflight = inflight;
     return inflight;
   }
 
@@ -122,8 +150,12 @@ export class ChatStreamService {
   }
 
   /**
-   * Asks the orchestrator for the LLM Host's configured backends.
-   * Used by `BackendService` to populate the UI's model picker.
+   * Returns the runtime's available backends. The new agent exposes
+   * `anthropic`, `mistral-online` (when MISTRAL_API_KEY is set), and
+   * `mistral-local` (always; calls vLLM). The UI's BackendService
+   * currently types BackendName as `'ollama' | 'anthropic'`, so we
+   * project the agent's list onto that narrow union — only
+   * `anthropic` survives. Widening BackendName is a follow-up.
    */
   async listBackends(): Promise<{
     defaultBackend: 'ollama' | 'anthropic';
@@ -134,12 +166,21 @@ export class ChatStreamService {
       location: 'local' | 'cloud';
     }>;
   }> {
-    return this.requestResponse(
-      'backends.list',
-      'backends.list',
-      uuid(),
-      {},
-    );
+    const id = uuid();
+    const reply = await this.request(id, 'backends.list', 'backends.list', {});
+    const backends = (reply['backends'] as AgentBackend[] | undefined) ?? [];
+    const projected = backends
+      .filter((b): b is 'anthropic' => b === 'anthropic')
+      .map((b) => ({
+        name: b,
+        displayName: 'Claude Haiku 4.5',
+        modelId: 'claude-haiku-4-5-20251001',
+        location: 'cloud' as const,
+      }));
+    return {
+      defaultBackend: 'anthropic',
+      backends: projected,
+    };
   }
 
   createSession(args: {
@@ -148,39 +189,28 @@ export class ChatStreamService {
     persona: { id: string; name: string; systemPrompt: string };
     correlationId?: string;
   }): Promise<CreateSessionResponse> {
-    const correlationId = args.correlationId ?? uuid();
-    const request: CreateSessionRequest = {
-      requestContext: {
-        callerService: this.cfg.appId,
-        priority: 'interactive',
-        requestedAt: new Date().toISOString(),
-      },
-      participant: {
-        userId: args.userId,
-        ...(args.displayName ? { displayName: args.displayName } : {}),
-      },
-      app: {
-        appId: this.cfg.appId,
-      },
-      persona: args.persona,
-      client: {
-        channel: this.cfg.clientChannel,
-        clientVersion: this.cfg.clientVersion,
-      },
-    };
-
-    return this.requestResponse(
-      'session.create',
-      'session.created',
-      correlationId,
-      { request },
-    ).then((payload) => ({
-      meta: this.meta(correlationId),
-      data: payload as CreateSessionResponse['data'],
-    }));
+    const id = args.correlationId ?? uuid();
+    return this.request(id, 'session.create', 'session.created', {
+      title: args.persona.name,
+      systemPrompt: args.persona.systemPrompt,
+      defaultBackend: 'anthropic',
+    }).then((reply) => {
+      const session = reply['session'] as {
+        id: string;
+        createdAt: string;
+      };
+      return {
+        meta: this.meta(id),
+        data: {
+          sessionId: session.id,
+          createdAt: session.createdAt,
+          status: 'active' as const,
+        },
+      };
+    });
   }
 
-  listSessions(args?: {
+  listSessions(_args?: {
     personaId?: string;
     correlationId?: string;
   }): Promise<{
@@ -192,14 +222,28 @@ export class ChatStreamService {
       updatedAt: string;
     }[];
   }> {
-    const correlationId = args?.correlationId ?? uuid();
-    const payload: { personaId?: string } = {};
-    if (args?.personaId) payload.personaId = args.personaId;
-    return this.requestResponse(
-      'session.list',
-      'session.listed',
-      correlationId,
-      payload,
+    // The new agent has no persona awareness, so the personaId filter
+    // is ignored on the wire. Callers that care about persona scoping
+    // filter client-side against the localStorage cache.
+    const id = uuid();
+    return this.request(id, 'session.list', 'session.list', {}).then(
+      (reply) => {
+        const list = (reply['sessions'] ?? []) as Array<{
+          id: string;
+          title: string | null;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+        return {
+          sessions: list.map((s) => ({
+            sessionId: s.id,
+            personaId: null,
+            title: s.title ?? 'New chat',
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+          })),
+        };
+      },
     );
   }
 
@@ -207,29 +251,72 @@ export class ChatStreamService {
     sessionId: string,
     correlationId = uuid(),
   ): Promise<GetSessionResponse> {
-    return this.requestResponse(
-      'session.get',
-      'session.snapshot',
-      correlationId,
-      { sessionId },
-    ).then((payload) => ({
-      meta: this.meta(correlationId),
-      data: payload as GetSessionResponse['data'],
-    }));
+    return this.request(correlationId, 'session.get', 'session.detail', {
+      sessionId,
+    }).then((reply) => {
+      const session = reply['session'] as {
+        id: string;
+        title: string | null;
+        createdAt: string;
+        updatedAt: string;
+        status: string;
+      };
+      const messages = (reply['messages'] ?? []) as Array<{
+        id: string;
+        turnId: string;
+        role: 'user' | 'assistant' | 'system' | 'tool';
+        content: unknown;
+        text: string;
+        seq: number;
+        createdAt: string;
+      }>;
+      const persisted: PersistedMessage[] = messages
+        // Hide pure tool-call / tool-result messages from the UI —
+        // they're internal agent-loop accounting, not turns the user
+        // typed or the assistant said. The final assistant text
+        // message at the end of the turn carries the visible content.
+        .filter((m) => m.role !== 'tool' && m.text.length > 0)
+        .map((m) => ({
+          messageId: m.id,
+          turnId: m.turnId,
+          role: m.role === 'system' ? 'assistant' : (m.role as 'user' | 'assistant'),
+          content: m.text,
+          createdAt: m.createdAt,
+        }));
+      return {
+        meta: this.meta(correlationId),
+        data: {
+          sessionId: session.id,
+          // The new agent has no persona; SessionService treats
+          // `personaId: null` as "stay in current persona on open."
+          personaId: null,
+          personaName: null,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+          status: session.status,
+          messages: persisted,
+        },
+      };
+    });
   }
 
   deleteSession(
     sessionId: string,
     correlationId = uuid(),
   ): Promise<DeleteSessionResponse> {
-    return this.requestResponse(
-      'session.delete',
-      'session.deleted',
+    // The agent has no destructive delete — it archives. From the UI's
+    // perspective this is identical: the session no longer appears in
+    // the active list. We surface the success as the old "deleted"
+    // response shape so SessionService doesn't need to learn the new
+    // verb.
+    return this.request(
       correlationId,
+      'session.archive',
+      'session.archived',
       { sessionId },
-    ).then((payload) => ({
+    ).then(() => ({
       meta: this.meta(correlationId),
-      data: payload as DeleteSessionResponse['data'],
+      data: { sessionId, deleted: true },
     }));
   }
 
@@ -242,102 +329,173 @@ export class ChatStreamService {
     includeDiagnostics?: boolean;
     images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
-    /**
-     * Optional LLM backend selector. The orchestrator forwards this
-     * to the LLM Host's `infer` so a single host instance with
-     * multiple backends configured routes this turn to the chosen
-     * one. When omitted, the LLM Host uses its env-configured default.
-     */
     backend?: 'ollama' | 'anthropic';
     onEvent: (event: ChatStreamEvent) => void;
-    onClose?: (info: { clean: boolean; code?: number; reason?: string }) => void;
+    onClose?: (info: {
+      clean: boolean;
+      code?: number;
+      reason?: string;
+    }) => void;
   }): StreamHandle {
-    const correlationId = args.correlationId ?? uuid();
+    const turnId = args.correlationId ?? uuid();
 
     if (this.activeTurn) {
-      args.onEvent(this.localError(correlationId, 'A turn is already active'));
+      args.onEvent(this.localError(turnId, 'A turn is already active'));
       return { cancel: () => undefined };
     }
 
-    const activeTurn: ActiveTurn = {
+    if (args.images && args.images.length > 0) {
+      // The new agent doesn't accept images yet — drop them and warn.
+      // SessionService will still show the inline preview in the user
+      // bubble; the model just won't see them. Add when the agent
+      // gains multimodal support.
+      console.warn(
+        '[chat] image attachments dropped — swirlock-agent-runtime has no multimodal input yet',
+      );
+    }
+
+    const active: ActiveTurn = {
       sessionId: args.sessionId,
-      correlationId,
+      turnId,
       onEvent: args.onEvent,
       onClose: args.onClose,
+      assistantText: '',
+      assistantCreatedAt: new Date().toISOString(),
+      citations: new Map(),
     };
-    this.activeTurn = activeTurn;
+    this.activeTurn = active;
 
-    const envelope: SubmitTurnStreamMessage = {
+    // Map UI backend selection ('anthropic') to the agent's BackendChoice
+    // shape. 'ollama' (legacy) is silently ignored — the agent has no
+    // ollama backend and the BackendService will pick the default.
+    const backend =
+      args.backend === 'anthropic'
+        ? { backend: 'anthropic' as const }
+        : undefined;
+
+    this.sendOrQueue({
       type: 'turn.submit',
-      correlationId,
-      payload: {
-        sessionId: args.sessionId,
-        request: this.buildRequest(args),
-      },
-    };
-
-    this.sendOrQueue(envelope);
+      id: turnId,
+      sessionId: args.sessionId,
+      message: args.text,
+      turnId,
+      ...(backend ? { backend } : {}),
+    });
 
     return {
       cancel: () => {
-        if (this.activeTurn !== activeTurn) return;
-        this.sendOrQueue({ type: 'cancel', correlationId });
+        // The new agent has no cancel verb on the gateway today; we
+        // mark the local turn as cancelled so the bubble settles, but
+        // the agent will still complete its in-flight model call.
+        if (this.activeTurn !== active) return;
+        this.activeTurn = null;
+        active.onClose?.({ clean: false, reason: 'cancelled' });
       },
     };
   }
 
   closeSession(_sessionId: string): void {
-    // v5 keeps one app-level socket open; switching sessions does not close it.
+    // Single app-level socket; nothing to close per session.
   }
 
-  private requestResponse<TPayload>(
+  sendLocationResponse(
+    _correlationId: string,
+    _response:
+      | {
+          available: true;
+          location: import('../models/chat.model').UserLocation;
+        }
+      | { available: false; reason: 'denied' | 'unavailable' },
+  ): void {
+    // The new agent never emits turn.location_required; SessionService
+    // therefore never invokes this. Kept as a no-op stub so the
+    // SessionService surface compiles without conditional code paths.
+  }
+
+  // ====================================================================
+  // Internals
+  // ====================================================================
+
+  private async request(
+    id: string,
     type: string,
     successType: string,
-    correlationId: string,
-    payload: Record<string, unknown>,
-  ): Promise<TPayload> {
+    extras: Record<string, unknown>,
+  ): Promise<ServerFrame> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(correlationId);
+        this.pending.delete(id);
         reject(new Error(`${type} timed out`));
       }, 30000);
-
-      this.pending.set(correlationId, {
+      this.pending.set(id, {
         successType,
-        resolve: (envelope) => resolve(envelope.payload as TPayload),
+        resolve,
         reject,
         timer,
       });
-
-      this.sendOrQueue({ type, correlationId, payload });
+      this.sendOrQueue({ type, id, ...extras });
     });
   }
 
   private socket(): Promise<WebSocket> {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN && this.authenticated) {
       return Promise.resolve(this.ws);
     }
     if (this.connecting) return this.connecting;
 
-    const url =
-      `${this.cfg.wsBaseUrl.replace(/\/$/, '')}` +
-      `/v5/chat?token=${encodeURIComponent(this.auth.token())}`;
+    const url = `${this.cfg.wsBaseUrl.replace(/\/$/, '')}/v1/agent`;
     const connecting = new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(url);
+
       ws.addEventListener('open', () => {
-        this.ws = ws;
-        for (const envelope of this.queued.splice(0)) {
-          ws.send(JSON.stringify(envelope));
-        }
-        resolve(ws);
+        // First frame on the wire MUST be auth — the gateway rejects
+        // every other frame type until verification completes.
+        ws.send(
+          JSON.stringify({
+            type: 'auth',
+            id: '__auth__',
+            token: this.auth.token(),
+          }),
+        );
       });
 
       ws.addEventListener('message', (msg) => {
-        this.handleMessage(msg.data);
+        let frame: ServerFrame;
+        try {
+          frame = JSON.parse(String(msg.data)) as ServerFrame;
+        } catch {
+          return;
+        }
+        if (!this.authenticated) {
+          if (frame.type === 'ready') {
+            this.authenticated = true;
+            this.ws = ws;
+            for (const queued of this.preauthQueue.splice(0)) {
+              ws.send(JSON.stringify(queued));
+            }
+            resolve(ws);
+            return;
+          }
+          if (frame.type === 'error') {
+            const message =
+              (frame['message'] as string | undefined) ?? 'auth failed';
+            reject(new Error(message));
+            try {
+              ws.close();
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
+          // Pre-auth frames other than ready/error are ignored.
+          return;
+        }
+        this.handleFrame(frame);
       });
 
       ws.addEventListener('close', (ev) => {
         if (this.ws === ws) this.ws = null;
+        this.authenticated = false;
         this.failPending(new Error('WebSocket closed'));
         const active = this.activeTurn;
         this.activeTurn = null;
@@ -350,7 +508,7 @@ export class ChatStreamService {
 
       ws.addEventListener('error', () => {
         const active = this.activeTurn;
-        active?.onEvent(this.localError(active.correlationId));
+        active?.onEvent(this.localError(active.turnId));
         reject(new Error('WebSocket transport error'));
       });
     }).finally(() => {
@@ -361,146 +519,205 @@ export class ChatStreamService {
     return connecting;
   }
 
-  private handleMessage(raw: unknown): void {
-    let envelope: V4Envelope;
-    try {
-      envelope = JSON.parse(String(raw)) as V4Envelope;
-    } catch {
-      return;
-    }
-
-    const pending = this.pending.get(envelope.correlationId);
-    if (pending) {
-      if (envelope.type === 'error') {
+  private handleFrame(frame: ServerFrame): void {
+    // Command replies: matched by inReplyTo against the request id.
+    const replyTo = frame.inReplyTo;
+    if (replyTo) {
+      const pending = this.pending.get(replyTo);
+      if (pending) {
         clearTimeout(pending.timer);
-        this.pending.delete(envelope.correlationId);
-        pending.reject(new Error(envelope.error?.message ?? 'Request failed'));
-        return;
-      }
-      if (envelope.type === pending.successType) {
-        clearTimeout(pending.timer);
-        this.pending.delete(envelope.correlationId);
-        pending.resolve(envelope);
-        return;
+        this.pending.delete(replyTo);
+        if (frame.type === 'error') {
+          pending.reject(
+            new Error(
+              (frame['message'] as string | undefined) ?? 'Request failed',
+            ),
+          );
+        } else if (frame.type === pending.successType) {
+          pending.resolve(frame);
+        } else {
+          pending.reject(
+            new Error(
+              `expected ${pending.successType}, got ${frame.type}`,
+            ),
+          );
+        }
+        // Turn frames also carry inReplyTo (the turn.submit's id) —
+        // turn.accepted's inReplyTo matches the submit's id. We
+        // resolved the request above, but the turn stream is also
+        // about to begin, so fall through to route it.
+        if (!frame.type.startsWith('turn.')) return;
       }
     }
 
     const active = this.activeTurn;
-    if (!active || active.correlationId !== envelope.correlationId) return;
+    if (!active) return;
+    const turnId = frame['turnId'];
+    if (typeof turnId === 'string' && turnId !== active.turnId) return;
 
-    const event = this.toChatStreamEvent(envelope);
-    if (!event) return;
-    active.onEvent(event);
-    if (event.type === 'turn.done' || event.type === 'error') {
+    const event = this.toChatStreamEvent(frame, active);
+    if (event) active.onEvent(event);
+
+    if (frame.type === 'turn.done' || frame.type === 'turn.error') {
       this.activeTurn = null;
     }
   }
 
-  private toChatStreamEvent(envelope: V4Envelope): ChatStreamEvent | null {
-    const base = {
-      correlationId: envelope.correlationId,
-      payload: envelope.payload as never,
-    };
-    switch (envelope.type) {
+  private toChatStreamEvent(
+    frame: ServerFrame,
+    active: ActiveTurn,
+  ): ChatStreamEvent | null {
+    const turnId = active.turnId;
+    switch (frame.type) {
       case 'turn.accepted':
-      case 'turn.classifying':
-      case 'turn.queued':
-      case 'turn.started':
-      case 'turn.retrieval':
-      case 'turn.location_required':
-      case 'turn.thinking':
-      case 'turn.chunk':
-      case 'turn.done':
-      case 'turn.agent':
-        return { type: envelope.type, ...base } as ChatStreamEvent;
-      case 'error':
         return {
-          type: 'error',
-          correlationId: envelope.correlationId,
-          error: envelope.error ?? {
-            code: 'transport_error',
-            message: 'Request failed',
-            retryable: true,
+          type: 'turn.started',
+          correlationId: turnId,
+          payload: {} as Record<string, never>,
+        };
+
+      case 'turn.text_delta': {
+        const delta = (frame['delta'] as string | undefined) ?? '';
+        active.assistantText += delta;
+        return {
+          type: 'turn.chunk',
+          correlationId: turnId,
+          payload: { text: delta },
+        };
+      }
+
+      case 'turn.thinking_delta': {
+        const delta = (frame['delta'] as string | undefined) ?? '';
+        return {
+          type: 'turn.thinking',
+          correlationId: turnId,
+          payload: { text: delta },
+        };
+      }
+
+      case 'turn.tool_use_started': {
+        const name = (frame['toolName'] as string | undefined) ?? 'tool';
+        return {
+          type: 'turn.agent',
+          correlationId: turnId,
+          payload: {
+            phase: 'command_started',
+            command: name,
+            summary: this.toolStartedSummary(name, frame['input']),
           },
         };
+      }
+
+      case 'turn.tool_use_completed': {
+        const toolName =
+          (frame['toolName'] as string | undefined) ?? 'tool';
+        if (toolName === 'search_web') {
+          const output = frame['output'] as
+            | { results?: Array<{ title?: string; url?: string }> }
+            | undefined;
+          for (const r of output?.results ?? []) {
+            if (typeof r.url !== 'string' || r.url.length === 0) continue;
+            if (active.citations.has(r.url)) continue;
+            active.citations.set(r.url, {
+              title: typeof r.title === 'string' ? r.title : r.url,
+              url: r.url,
+            });
+          }
+        }
+        return {
+          type: 'turn.agent',
+          correlationId: turnId,
+          payload: {
+            phase: 'command_completed',
+            command: toolName,
+            summary: 'Tool finished',
+          },
+        };
+      }
+
+      case 'turn.tool_use_failed':
+        return {
+          type: 'turn.agent',
+          correlationId: turnId,
+          payload: {
+            phase: 'command_completed',
+            command: (frame['toolName'] as string | undefined) ?? 'tool',
+            summary: `Tool failed: ${(frame['error'] as string | undefined) ?? 'unknown'}`,
+          },
+        };
+
+      case 'turn.done': {
+        const finish =
+          (frame['finishReason'] as string | undefined) ?? 'stop';
+        const citations = Array.from(active.citations.values()).map((c) => ({
+          // Reuse the URL as the evidenceId. The UI uses evidenceId
+          // for keying only; it doesn't need to match a server-side
+          // entity (the new agent doesn't have an evidence table).
+          evidenceId: c.url,
+          sourceTitle: c.title,
+          sourceUrl: c.url,
+        }));
+        return {
+          type: 'turn.done',
+          correlationId: turnId,
+          payload: {
+            sessionId: active.sessionId,
+            turnId,
+            assistantMessage: {
+              messageId: turnId,
+              content: active.assistantText,
+              createdAt: active.assistantCreatedAt,
+            },
+            finishReason: (finish === 'length'
+              ? 'length'
+              : finish === 'error'
+                ? 'error'
+                : 'stop') as 'stop' | 'length' | 'error',
+            ...(citations.length > 0 ? { citations } : {}),
+          },
+        };
+      }
+
+      case 'turn.error':
+        return {
+          type: 'error',
+          correlationId: turnId,
+          error: {
+            code: 'turn_error',
+            message:
+              (frame['error'] as string | undefined) ?? 'Turn failed',
+            retryable: false,
+          },
+        };
+
       default:
         return null;
     }
   }
 
-  private sendOrQueue(envelope: V4Envelope): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(envelope));
+  private toolStartedSummary(name: string, input: unknown): string {
+    if (name === 'search_web' && input && typeof input === 'object') {
+      const q = (input as { query?: unknown }).query;
+      if (typeof q === 'string') return `Searching: "${q}"`;
+    }
+    if (name === 'get_current_time') return 'Checking the time';
+    if (name === 'add_numbers') return 'Computing';
+    return `Calling tool: ${name}`;
+  }
+
+  private sendOrQueue(frame: unknown): void {
+    if (this.ws?.readyState === WebSocket.OPEN && this.authenticated) {
+      this.ws.send(JSON.stringify(frame));
       return;
     }
-    this.queued.push(envelope);
+    this.preauthQueue.push(frame);
     void this.socket();
   }
 
-  private buildRequest(args: {
-    text: string;
-    thinking?: boolean;
-    forceThinking?: boolean;
-    includeDiagnostics?: boolean;
-    images?: { dataUrl: string; mimeType: string }[];
-    userLocation?: import('../models/chat.model').UserLocation;
-    backend?: 'ollama' | 'anthropic';
-  }): SubmitTurnRequest {
-    const parts: SubmitTurnRequest['message']['parts'] = [];
-    if (args.text.length > 0) {
-      parts.push({ type: 'text', text: args.text });
-    }
-    for (const img of args.images ?? []) {
-      parts.push({
-        type: 'image',
-        imageBase64: img.dataUrl,
-        mimeType: img.mimeType,
-      });
-    }
-    return {
-      requestContext: {
-        callerService: this.cfg.appId,
-        priority: 'interactive',
-        requestedAt: new Date().toISOString(),
-      },
-      clientTurnId: uuid(),
-      message: {
-        parts,
-        occurredAt: new Date().toISOString(),
-      },
-      ...(args.userLocation ? { userLocation: args.userLocation } : {}),
-      ...(args.backend ? { backend: args.backend } : {}),
-      options: {
-        ...(args.thinking === undefined ? {} : { thinking: args.thinking }),
-        ...(args.forceThinking ? { forceThinking: true } : {}),
-        ...(args.includeDiagnostics ? { includeDiagnostics: true } : {}),
-      },
-    };
-  }
-
-  sendLocationResponse(
-    correlationId: string,
-    response:
-      | {
-          available: true;
-          location: import('../models/chat.model').UserLocation;
-        }
-      | { available: false; reason: 'denied' | 'unavailable' },
-  ): void {
-    this.sendOrQueue({
-      type: 'turn.location_response',
-      correlationId,
-      payload: response,
-    });
-  }
-
-  private localError(
-    correlationId: string,
-    message = 'WebSocket transport error',
-  ): ChatStreamEvent {
+  private localError(turnId: string, message = 'WebSocket transport error'): ChatStreamEvent {
     return {
       type: 'error',
-      correlationId,
+      correlationId: turnId,
       error: {
         code: 'transport_error',
         message,
@@ -510,9 +727,9 @@ export class ChatStreamService {
   }
 
   private failPending(error: Error): void {
-    for (const [correlationId, pending] of this.pending) {
+    for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
-      this.pending.delete(correlationId);
+      this.pending.delete(id);
       pending.reject(error);
     }
   }
@@ -521,7 +738,7 @@ export class ChatStreamService {
     return {
       requestId: uuid(),
       correlationId,
-      apiVersion: 'v5',
+      apiVersion: 'v1',
       servedAt: new Date().toISOString(),
     };
   }
