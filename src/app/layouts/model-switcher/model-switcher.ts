@@ -11,15 +11,15 @@ import { BackendService } from '../../core/services/backend.service';
 import type { BackendName } from '../../core/services/backend.service';
 
 /**
- * Inline backend (model) switcher rendered under the assistant's name
- * inside each assistant message bubble. Mirrors `app-persona-switcher`
- * visually — a small label with a down-chevron that opens a dropdown
- * of the LLM backends the host has been configured to serve.
+ * Backend (model) switcher. Renders the agent's `backends.list`
+ * dropdown; clicking a backend round-trips through the agent's
+ * `session.set_backend` and only updates the displayed selection
+ * once the agent confirms (BackendService.select awaits the reply,
+ * and selectedName re-derives from the active session's
+ * defaultBackend).
  *
- * Selection is persisted per-user in localStorage and applies to every
- * subsequent turn. The dropdown is hidden (the label renders as a
- * plain `<span>`) when only one backend is available, so users on
- * Ollama-only deployments see no UI change.
+ * The dropdown is hidden (label renders as a static span) when only
+ * one backend is available or there is no active session yet.
  */
 @Component({
   selector: 'app-model-switcher',
@@ -40,12 +40,19 @@ export class ModelSwitcher {
 
   protected toggle(): void {
     if (!this.hasChoice()) return;
+    if (this.backend.switching()) return;
     this.open.update((v) => !v);
   }
 
-  protected select(name: BackendName): void {
-    this.backend.select(name);
+  protected async select(name: BackendName): Promise<void> {
     this.open.set(false);
+    try {
+      await this.backend.select(name);
+    } catch {
+      // Failures (no active session, agent error) are silent here;
+      // the dropdown closes and selectedName stays on the prior value.
+      // A future iteration can surface a toast.
+    }
   }
 
   @HostListener('document:click', ['$event'])

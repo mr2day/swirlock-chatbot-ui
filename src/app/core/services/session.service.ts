@@ -8,8 +8,11 @@ import type { PersistedImageRef } from '../models/chat.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
 import { AuthService } from './auth.service';
-import { BackendService } from './backend.service';
-import { ChatStreamService, StreamHandle } from './chat-stream.service';
+import {
+  ChatStreamService,
+  StreamHandle,
+  type AgentBackend,
+} from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
 
@@ -118,7 +121,6 @@ export class SessionService {
   private readonly persona = inject(PersonaService);
   private readonly location = inject(LocationService);
   private readonly auth = inject(AuthService);
-  private readonly backend = inject(BackendService);
   private readonly cfg = inject(RUNTIME_CONFIG);
 
   private readonly _sessions = signal<SessionSummary[]>([]);
@@ -137,6 +139,17 @@ export class SessionService {
   readonly isLoading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
   readonly hasActiveSession = computed(() => this._activeId() !== null);
+  /**
+   * Active session derived from `sessions` and `activeId`. Null when
+   * no session is open. Consumers (BackendService, sidebar headers)
+   * read `.defaultBackend` off this to display the model that's about
+   * to serve the next turn.
+   */
+  readonly activeSession = computed<SessionSummary | null>(() => {
+    const id = this._activeId();
+    if (!id) return null;
+    return this._sessions().find((s) => s.sessionId === id) ?? null;
+  });
 
   constructor() {
     // Reload (or clear) the local cache whenever the authenticated user
@@ -260,6 +273,7 @@ export class SessionService {
         sessionId,
         personaId: persona.id,
         title: 'New chat',
+        defaultBackend: res.data.defaultBackend,
         createdAt: res.data.createdAt,
         updatedAt: res.data.createdAt,
       };
@@ -328,6 +342,7 @@ export class SessionService {
           ...(m.citations && m.citations.length > 0
             ? { citations: m.citations }
             : {}),
+          ...(m.attribution ? { attribution: m.attribution } : {}),
         };
       });
       this._messages.set(messages);
@@ -340,6 +355,7 @@ export class SessionService {
             ? {
                 ...s,
                 title,
+                defaultBackend: res.data.defaultBackend,
                 createdAt: res.data.createdAt,
                 updatedAt: res.data.updatedAt,
               }
@@ -444,8 +460,9 @@ export class SessionService {
         ? (await this.location.fetchCurrentLocation()) ?? undefined
         : undefined;
 
-    const selectedBackend = this.backend.selectedName();
-
+    // The session's defaultBackend on the agent side governs which
+    // model serves each turn. The UI no longer overrides per-turn —
+    // model switching is a session-scoped action via setBackend.
     this.currentStream = this.stream.openTurn({
       sessionId,
       text,
@@ -453,7 +470,6 @@ export class SessionService {
       includeDiagnostics: true,
       ...(images.length > 0 ? { images } : {}),
       ...(userLocation ? { userLocation } : {}),
-      ...(selectedBackend ? { backend: selectedBackend } : {}),
       onEvent: (evt) => {
         switch (evt.type) {
           case 'turn.accepted':
@@ -466,13 +482,23 @@ export class SessionService {
           case 'turn.queued':
             this.patchAssistant({ status: 'queued' });
             break;
-          case 'turn.started':
+          case 'turn.started': {
+            // turn.started carries the backend+model the agent
+            // committed to for this turn. Stamp it so the assistant
+            // bubble shows per-message attribution immediately.
+            const p = evt.payload;
             this.patchAssistant({
               status: 'streaming',
               retrievalStatus: undefined,
               agentStatus: undefined,
+              ...(p.backend && p.modelId
+                ? {
+                    attribution: { backend: p.backend, modelId: p.modelId },
+                  }
+                : {}),
             });
             break;
+          }
           case 'turn.retrieval':
             this.applyRetrievalEvent(evt.payload.event);
             break;
@@ -543,6 +569,33 @@ export class SessionService {
         }
       },
     });
+  }
+
+  /**
+   * Pin a new backend on the active session. Round-trips through the
+   * agent's `session.set_backend`; resolves only once the agent
+   * confirms with the updated session. The UI's `selectedName`
+   * signal (in BackendService) re-derives from `activeSession` the
+   * moment the local summary's `defaultBackend` updates here.
+   */
+  async setActiveSessionBackend(backend: AgentBackend): Promise<void> {
+    const sessionId = this._activeId();
+    if (!sessionId) {
+      throw new Error('no active session to switch backend on');
+    }
+    const res = await this.stream.setSessionBackend({ sessionId, backend });
+    this._sessions.update((list) =>
+      list.map((s) =>
+        s.sessionId === sessionId
+          ? {
+              ...s,
+              defaultBackend: res.defaultBackend,
+              updatedAt: res.updatedAt,
+            }
+          : s,
+      ),
+    );
+    this.persistSessions();
   }
 
   cancelStream(): void {

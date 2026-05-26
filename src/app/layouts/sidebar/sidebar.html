@@ -1,5 +1,8 @@
 <div class="sidebar">
-  <app-persona-switcher [showTagline]="true" />
+  <app-persona-switcher />
+  @if (session.hasActiveSession() && backend.loaded()) {
+    <app-model-switcher class="sidebar-model-switcher" />
+  }
 
 
   <button class="new-chat" type="button" (click)="newChat()" [disabled]="session.isLoading()">

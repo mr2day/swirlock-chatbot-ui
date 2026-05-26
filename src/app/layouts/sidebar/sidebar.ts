@@ -4,8 +4,10 @@ import { LayoutService } from '../../core/services/layout.service';
 import { LiveUpdateService } from '../../core/services/live-update.service';
 import { SessionService } from '../../core/services/session.service';
 import { AuthService } from '../../core/services/auth.service';
+import { BackendService } from '../../core/services/backend.service';
 import { PersonaService } from '../../core/services/persona.service';
 import { findPersona } from '../../core/personas/personas.registry';
+import { ModelSwitcher } from '../model-switcher/model-switcher';
 import { PersonaSwitcher } from '../persona-switcher/persona-switcher';
 import type { SessionSummary } from '../../core/models/chat-message.model';
 
@@ -20,7 +22,7 @@ const THIRTY_DAYS = 30 * ONE_DAY;
 
 @Component({
   selector: 'app-sidebar',
-  imports: [RouterLink, RouterLinkActive, PersonaSwitcher],
+  imports: [RouterLink, RouterLinkActive, PersonaSwitcher, ModelSwitcher],
   templateUrl: './sidebar.html',
   styleUrl: './sidebar.scss',
 })
@@ -29,6 +31,7 @@ export class Sidebar {
   protected readonly layout = inject(LayoutService);
   protected readonly auth = inject(AuthService);
   protected readonly persona = inject(PersonaService);
+  protected readonly backend = inject(BackendService);
   protected readonly liveUpdate = inject(LiveUpdateService);
   private readonly router = inject(Router);
 
