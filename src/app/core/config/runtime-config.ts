@@ -52,7 +52,10 @@ export const RUNTIME_CONFIG = new InjectionToken<RuntimeConfig>('RUNTIME_CONFIG'
  * file OR by adding a /config.json file under public/.
  */
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
-  wsBaseUrl: 'wss://api.gigi-the-robot.com',
+  // Repointed at swirlock-agent-runtime (the new classic-pattern agent)
+  // for the feature/repoint-agent-runtime branch. Will need to be the
+  // public deploy URL of the agent when the branch lands on main.
+  wsBaseUrl: 'ws://127.0.0.1:3216',
   appId: 'gigi-the-robot-ui',
   clientChannel: 'web',
   clientVersion: '0.1.0',
@@ -60,5 +63,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   oidcClientId: 'swirlock-chatbot-ui',
   oidcRedirectUri: 'https://gigi-the-robot.com/auth/callback',
   oidcPostLogoutRedirectUri: 'https://gigi-the-robot.com/auth/logout-callback',
-  oidcResource: 'http://127.0.0.1:3200',
+  // Audience for IdP-issued tokens. Matches the agent's
+  // service.config.cjs:IDP_AUDIENCE. Bypassed at the agent in dev
+  // (DEV_BYPASS_AUTH=true), but kept honest so production deploy works
+  // without further token-issuance changes.
+  oidcResource: 'http://127.0.0.1:3216',
 };
