@@ -68,6 +68,11 @@ interface ActiveTurn {
   // not the assistant text — that text was streamed via text_delta).
   assistantText: string;
   assistantCreatedAt: string;
+  // Citation buffer. The new agent has no top-level citations field
+  // on turn.done; search_web tool results carry the sources. We
+  // collect them across every search_web call in the turn, dedup by
+  // URL, and emit as CitationRef[] on the synthesized turn.done.
+  citations: Map<string, { title: string; url: string }>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -356,6 +361,7 @@ export class ChatStreamService {
       onClose: args.onClose,
       assistantText: '',
       assistantCreatedAt: new Date().toISOString(),
+      citations: new Map(),
     };
     this.activeTurn = active;
 
@@ -602,16 +608,32 @@ export class ChatStreamService {
         };
       }
 
-      case 'turn.tool_use_completed':
+      case 'turn.tool_use_completed': {
+        const toolName =
+          (frame['toolName'] as string | undefined) ?? 'tool';
+        if (toolName === 'search_web') {
+          const output = frame['output'] as
+            | { results?: Array<{ title?: string; url?: string }> }
+            | undefined;
+          for (const r of output?.results ?? []) {
+            if (typeof r.url !== 'string' || r.url.length === 0) continue;
+            if (active.citations.has(r.url)) continue;
+            active.citations.set(r.url, {
+              title: typeof r.title === 'string' ? r.title : r.url,
+              url: r.url,
+            });
+          }
+        }
         return {
           type: 'turn.agent',
           correlationId: turnId,
           payload: {
             phase: 'command_completed',
-            command: (frame['toolName'] as string | undefined) ?? 'tool',
+            command: toolName,
             summary: 'Tool finished',
           },
         };
+      }
 
       case 'turn.tool_use_failed':
         return {
@@ -627,6 +649,14 @@ export class ChatStreamService {
       case 'turn.done': {
         const finish =
           (frame['finishReason'] as string | undefined) ?? 'stop';
+        const citations = Array.from(active.citations.values()).map((c) => ({
+          // Reuse the URL as the evidenceId. The UI uses evidenceId
+          // for keying only; it doesn't need to match a server-side
+          // entity (the new agent doesn't have an evidence table).
+          evidenceId: c.url,
+          sourceTitle: c.title,
+          sourceUrl: c.url,
+        }));
         return {
           type: 'turn.done',
           correlationId: turnId,
@@ -643,6 +673,7 @@ export class ChatStreamService {
               : finish === 'error'
                 ? 'error'
                 : 'stop') as 'stop' | 'length' | 'error',
+            ...(citations.length > 0 ? { citations } : {}),
           },
         };
       }
