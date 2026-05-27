@@ -16,6 +16,7 @@ import {
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
 import { BACKEND_PREFERENCE_KEY } from '../storage-keys';
+import { ChatUiState } from '../state/chat-ui-state.service';
 
 function readPreferredBackend(): string | null {
   try {
@@ -164,6 +165,7 @@ export class SessionService {
   private readonly location = inject(LocationService);
   private readonly auth = inject(AuthService);
   private readonly cfg = inject(RUNTIME_CONFIG);
+  private readonly state = inject(ChatUiState);
 
   private readonly _sessions = signal<SessionSummary[]>([]);
   private readonly _activeId = signal<string | null>(null);
@@ -211,6 +213,19 @@ export class SessionService {
         this._sessions.set(this.loadSessions(sub, personaId));
         void this.refreshSessionsFromServer(sub, personaId);
       });
+    });
+
+    // Mirror active-session changes into ChatUiState so the global
+    // state service stays in sync. One subscription, runs whenever
+    // `_activeId` or `_sessions` changes — handles open / close /
+    // session-row-update transparently without each call site having
+    // to remember to push.
+    effect(() => {
+      const session = this.activeSession();
+      this.state.setActiveSession(
+        session?.sessionId ?? null,
+        session?.defaultBackend ?? null,
+      );
     });
   }
 

@@ -6,6 +6,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+echo "[deploy] Running UI eval harness..."
+npm run eval --silent
+
 echo "[deploy] Stamping version into src/app/core/version.ts..."
 node scripts/write-version.mjs
 
