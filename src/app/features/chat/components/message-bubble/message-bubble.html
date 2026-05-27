@@ -137,6 +137,15 @@
       <div class="content prose" [innerHTML]="contentHtml()"></div>
     }
 
+    @if (stopNotice(); as notice) {
+      <div class="stop-notice" role="status">
+        <span class="stop-notice-label">{{ notice.label }}</span>
+        @if (notice.detail) {
+          <span class="stop-notice-detail">{{ notice.detail }}</span>
+        }
+      </div>
+    }
+
     @if (message().citations?.length) {
       <details class="citations">
         <summary>Sources ({{ message().citations!.length }})</summary>

@@ -107,6 +107,24 @@ export class MessageBubble {
     }
   });
 
+  /**
+   * Human-readable label for a non-completed stopReason. Returned null
+   * for normal completions (the bubble shows nothing extra) and for
+   * user messages. Renders as a small badge below the content.
+   */
+  protected readonly stopNotice = computed<{ label: string; detail?: string } | null>(() => {
+    const m = this.message();
+    if (m.role !== 'assistant') return null;
+    if (!m.stopReason || m.stopReason === 'completed') return null;
+    const label =
+      m.stopReason === 'step-budget'
+        ? 'Agent ran out of steps before finishing'
+        : m.stopReason === 'tool-quota'
+          ? 'Agent hit a per-tool call quota'
+          : 'Agent stopped on a repeated tool call';
+    return { label, detail: m.stopDetail };
+  });
+
   protected readonly isStreamingActive = computed<boolean>(() => {
     const s = this.message().status;
     return (

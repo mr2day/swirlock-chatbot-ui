@@ -112,6 +112,16 @@ export type ChatStreamEvent =
           createdAt: string;
         };
         finishReason: 'stop' | 'length' | 'error';
+        // Why the agent loop ended. 'completed' = model emitted a final
+        // answer naturally. Anything else = a safety rail fired (the
+        // assistant message may be empty or partial); UI renders an
+        // inline indicator. Absent on legacy server builds.
+        stopReason?:
+          | 'completed'
+          | 'step-budget'
+          | 'tool-quota'
+          | 'repeat-tool-call';
+        stopDetail?: string;
         citations?: CitationRef[];
         diagnostics?: DoneDiagnostics;
       };

@@ -203,6 +203,30 @@
   color: var(--persona-danger);
 }
 
+.stop-notice {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--persona-warning, #c97a13);
+  background: var(--persona-surface);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--persona-text-secondary);
+  max-width: 100%;
+}
+
+.stop-notice-label {
+  font-weight: 600;
+  color: var(--persona-warning, #c97a13);
+}
+
+.stop-notice-detail {
+  font-family: var(--font-mono);
+  color: var(--persona-text-muted);
+}
+
 .status-dot {
   width: 6px;
   height: 6px;

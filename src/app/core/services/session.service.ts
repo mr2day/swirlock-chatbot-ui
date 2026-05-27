@@ -563,6 +563,8 @@ export class SessionService {
               agentStatus: undefined,
               citations: evt.payload.citations,
               diagnostics: evt.payload.diagnostics,
+              stopReason: evt.payload.stopReason,
+              stopDetail: evt.payload.stopDetail,
             });
             this._streaming.set(false);
             this.currentStream = null;

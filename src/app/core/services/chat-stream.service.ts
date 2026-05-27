@@ -738,6 +738,15 @@ export class ChatStreamService {
       case 'turn.done': {
         const finish =
           (frame['finishReason'] as string | undefined) ?? 'stop';
+        const stopReasonRaw = frame['stopReason'] as string | undefined;
+        const stopReason: 'completed' | 'step-budget' | 'tool-quota' | 'repeat-tool-call' | undefined =
+          stopReasonRaw === 'completed' ||
+          stopReasonRaw === 'step-budget' ||
+          stopReasonRaw === 'tool-quota' ||
+          stopReasonRaw === 'repeat-tool-call'
+            ? stopReasonRaw
+            : undefined;
+        const stopDetail = frame['stopDetail'] as string | undefined;
         const citations = Array.from(active.citations.values()).map((c) => ({
           // Reuse the URL as the evidenceId. The UI uses evidenceId
           // for keying only; it doesn't need to match a server-side
@@ -762,6 +771,8 @@ export class ChatStreamService {
               : finish === 'error'
                 ? 'error'
                 : 'stop') as 'stop' | 'length' | 'error',
+            ...(stopReason ? { stopReason } : {}),
+            ...(stopDetail ? { stopDetail } : {}),
             ...(citations.length > 0 ? { citations } : {}),
           },
         };
