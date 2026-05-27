@@ -65,7 +65,7 @@ export interface StreamHandle {
 export type AgentBackend =
   | 'anthropic'
   | 'mistral-online'
-  | 'mistral-local';
+  | 'ollama-local';
 
 /**
  * Backend descriptor as it arrives from the agent's backends.list
