@@ -13,12 +13,10 @@ import type { ChatMessage } from '../../../../core/models/chat-message.model';
 import type { Persona } from '../../../../core/personas/persona.model';
 import { renderMarkdownSafe } from '../../../../core/markdown/markdown';
 import { BackendService } from '../../../../core/services/backend.service';
-import { ChatStreamService } from '../../../../core/services/chat-stream.service';
-import { ModelSwitcher } from '../../../../layouts/model-switcher/model-switcher';
 
 @Component({
   selector: 'app-message-bubble',
-  imports: [ModelSwitcher],
+  imports: [],
   templateUrl: './message-bubble.html',
   styleUrl: './message-bubble.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -31,14 +29,21 @@ export class MessageBubble {
   @Output() readonly denyLocation = new EventEmitter<string>();
 
   private readonly sanitizer = inject(DomSanitizer);
-  private readonly stream = inject(ChatStreamService);
   private readonly backend = inject(BackendService);
 
-  /** LLM model id (e.g. `gemma3:12b`) — fallback label shown when backends.list isn't loaded yet. */
-  protected readonly modelId = this.stream.modelId;
-
-  /** True once the BackendService has fetched the host's configured backends. */
-  protected readonly backendsLoaded = this.backend.loaded;
+  /**
+   * Display name for the model that produced this assistant turn.
+   * Resolved from BackendService when we know the backend, otherwise
+   * the raw modelId from attribution. Null for user messages.
+   */
+  protected readonly attributionLabel = computed<string | null>(() => {
+    const m = this.message();
+    if (m.role !== 'assistant') return null;
+    const a = m.attribution;
+    if (!a) return null;
+    const known = this.backend.backends().find((b) => b.name === a.backend);
+    return known ? known.displayName : a.modelId;
+  });
 
   protected readonly thinkingOpen = signal<boolean>(true);
 

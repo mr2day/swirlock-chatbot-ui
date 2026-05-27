@@ -8,8 +8,11 @@ import type { PersistedImageRef } from '../models/chat.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
 import { RUNTIME_CONFIG } from '../config/runtime-config';
 import { AuthService } from './auth.service';
-import { BackendService } from './backend.service';
-import { ChatStreamService, StreamHandle } from './chat-stream.service';
+import {
+  ChatStreamService,
+  StreamHandle,
+  type AgentBackend,
+} from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
 
@@ -21,6 +24,39 @@ const LEGACY_ACTIVE_SESSION_KEY = 'gigi.activeSessionId';
 const SESSIONS_KEY_PREFIX = 'gigi.sessions.';
 const ACTIVE_SESSION_KEY_PREFIX = 'gigi.activeSessionId.';
 const LOCAL_USER_DISPLAY = 'You';
+
+/**
+ * Bump this whenever SessionSummary gains a required field. The
+ * envelope in localStorage records the version the data was written
+ * with; `migrateSessions` runs the chain of upgraders before handing
+ * the data back. Without this, adding a required field silently
+ * crashes every friend's cached client until they manually refresh.
+ *
+ * History:
+ *   0 → raw SessionSummary[] (pre-versioning legacy)
+ *   1 → adds `defaultBackend: string | null`; legacy rows fill with
+ *       null so BackendService falls through to the runtime default
+ *       until a refresh / switch fixes them.
+ */
+const SESSIONS_CACHE_VERSION = 1;
+
+function migrateSessions(
+  rows: unknown[],
+  fromVersion: number,
+): SessionSummary[] {
+  if (!Array.isArray(rows)) return [];
+  let next: Array<Record<string, unknown>> = rows
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+    .map((r) => ({ ...r }));
+  // v0 → v1: ensure defaultBackend is present.
+  if (fromVersion < 1) {
+    next = next.map((r) => ({
+      defaultBackend: r['defaultBackend'] ?? null,
+      ...r,
+    }));
+  }
+  return next as unknown as SessionSummary[];
+}
 
 try {
   localStorage.removeItem(LEGACY_SESSIONS_KEY);
@@ -118,7 +154,6 @@ export class SessionService {
   private readonly persona = inject(PersonaService);
   private readonly location = inject(LocationService);
   private readonly auth = inject(AuthService);
-  private readonly backend = inject(BackendService);
   private readonly cfg = inject(RUNTIME_CONFIG);
 
   private readonly _sessions = signal<SessionSummary[]>([]);
@@ -137,6 +172,17 @@ export class SessionService {
   readonly isLoading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
   readonly hasActiveSession = computed(() => this._activeId() !== null);
+  /**
+   * Active session derived from `sessions` and `activeId`. Null when
+   * no session is open. Consumers (BackendService, sidebar headers)
+   * read `.defaultBackend` off this to display the model that's about
+   * to serve the next turn.
+   */
+  readonly activeSession = computed<SessionSummary | null>(() => {
+    const id = this._activeId();
+    if (!id) return null;
+    return this._sessions().find((s) => s.sessionId === id) ?? null;
+  });
 
   constructor() {
     // Reload (or clear) the local cache whenever the authenticated user
@@ -197,10 +243,12 @@ export class SessionService {
   }
 
   /**
-   * Fetches the active persona's sessions from the orchestrator and
-   * writes them into the local store. Sessions live server-side; the
-   * localStorage copy is a per-(user, persona) cache that's wrong as
-   * soon as the user signs in on a different device.
+   * Refreshes the per-persona sidebar list from the agent. Persona
+   * scoping is server-side now: we pass `personaId` and the agent
+   * filters `sessions` by `client_metadata @> {personaId}`. The
+   * server is authoritative — no client-side intersection — so a
+   * fresh device / cleared localStorage still sees every session
+   * the user created on this persona from any device.
    */
   private async refreshSessionsFromServer(
     sub: string,
@@ -238,28 +286,26 @@ export class SessionService {
     }
     try {
       const persona = this.persona.active();
-      const modelId = await this.stream.getModelId();
-      const systemPrompt = persona.systemPromptTemplate.replace(
-        /\$\{model\}/g,
-        modelId,
-      );
-      // The 2026-05-24 strip-personas-to-bare-minimum directive
-      // removed the CAPABILITY_RULES and INTIMACY_BOUNDARY appends.
-      // The persona's own template (see shared-rules.agentBase) is
-      // the entire system prompt the orchestrator stores on the
-      // session. The orchestrator still applies LANGUAGE_RULE,
-      // date+location, and search-grounding wrappers at answer time
-      // — those are out of the persona's hands.
+      // Pass the template verbatim — the `${model}` placeholder is
+      // substituted server-side at every turn so a mid-conversation
+      // backend switch immediately reflects in persona introspection.
+      // Title is omitted at create time: the agent auto-derives it
+      // from the first user message and stamps it on the session row.
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,
-        persona: { id: persona.id, name: persona.name, systemPrompt },
+        persona: {
+          id: persona.id,
+          name: persona.name,
+          systemPrompt: persona.systemPromptTemplate,
+        },
       });
       const sessionId = res.data.sessionId;
       const summary: SessionSummary = {
         sessionId,
         personaId: persona.id,
         title: 'New chat',
+        defaultBackend: res.data.defaultBackend,
         createdAt: res.data.createdAt,
         updatedAt: res.data.createdAt,
       };
@@ -328,6 +374,7 @@ export class SessionService {
           ...(m.citations && m.citations.length > 0
             ? { citations: m.citations }
             : {}),
+          ...(m.attribution ? { attribution: m.attribution } : {}),
         };
       });
       this._messages.set(messages);
@@ -340,6 +387,7 @@ export class SessionService {
             ? {
                 ...s,
                 title,
+                defaultBackend: res.data.defaultBackend,
                 createdAt: res.data.createdAt,
                 updatedAt: res.data.updatedAt,
               }
@@ -444,8 +492,9 @@ export class SessionService {
         ? (await this.location.fetchCurrentLocation()) ?? undefined
         : undefined;
 
-    const selectedBackend = this.backend.selectedName();
-
+    // The session's defaultBackend on the agent side governs which
+    // model serves each turn. The UI no longer overrides per-turn —
+    // model switching is a session-scoped action via setBackend.
     this.currentStream = this.stream.openTurn({
       sessionId,
       text,
@@ -453,7 +502,6 @@ export class SessionService {
       includeDiagnostics: true,
       ...(images.length > 0 ? { images } : {}),
       ...(userLocation ? { userLocation } : {}),
-      ...(selectedBackend ? { backend: selectedBackend } : {}),
       onEvent: (evt) => {
         switch (evt.type) {
           case 'turn.accepted':
@@ -466,13 +514,23 @@ export class SessionService {
           case 'turn.queued':
             this.patchAssistant({ status: 'queued' });
             break;
-          case 'turn.started':
+          case 'turn.started': {
+            // turn.started carries the backend+model the agent
+            // committed to for this turn. Stamp it so the assistant
+            // bubble shows per-message attribution immediately.
+            const p = evt.payload;
             this.patchAssistant({
               status: 'streaming',
               retrievalStatus: undefined,
               agentStatus: undefined,
+              ...(p.backend && p.modelId
+                ? {
+                    attribution: { backend: p.backend, modelId: p.modelId },
+                  }
+                : {}),
             });
             break;
+          }
           case 'turn.retrieval':
             this.applyRetrievalEvent(evt.payload.event);
             break;
@@ -543,6 +601,33 @@ export class SessionService {
         }
       },
     });
+  }
+
+  /**
+   * Pin a new backend on the active session. Round-trips through the
+   * agent's `session.set_backend`; resolves only once the agent
+   * confirms with the updated session. The UI's `selectedName`
+   * signal (in BackendService) re-derives from `activeSession` the
+   * moment the local summary's `defaultBackend` updates here.
+   */
+  async setActiveSessionBackend(backend: AgentBackend): Promise<void> {
+    const sessionId = this._activeId();
+    if (!sessionId) {
+      throw new Error('no active session to switch backend on');
+    }
+    const res = await this.stream.setSessionBackend({ sessionId, backend });
+    this._sessions.update((list) =>
+      list.map((s) =>
+        s.sessionId === sessionId
+          ? {
+              ...s,
+              defaultBackend: res.defaultBackend,
+              updatedAt: res.updatedAt,
+            }
+          : s,
+      ),
+    );
+    this.persistSessions();
   }
 
   cancelStream(): void {
@@ -794,8 +879,18 @@ export class SessionService {
     try {
       const raw = localStorage.getItem(this.sessionsKey(sub, personaId));
       if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as SessionSummary[]) : [];
+      const parsed = JSON.parse(raw) as
+        | SessionSummary[]
+        | { version: number; sessions: SessionSummary[] };
+      // Legacy: raw array (pre-version) is still readable; treated
+      // as version 0 and silently upgraded on next persist.
+      if (Array.isArray(parsed)) {
+        return migrateSessions(parsed, 0);
+      }
+      if (parsed && typeof parsed === 'object' && 'sessions' in parsed) {
+        return migrateSessions(parsed.sessions, parsed.version ?? 0);
+      }
+      return [];
     } catch {
       return [];
     }
@@ -806,9 +901,17 @@ export class SessionService {
     if (!sub) return;
     const personaId = this.persona.activeId();
     try {
+      // Versioned envelope: bumping SESSIONS_CACHE_VERSION + adding
+      // a migration step in migrateSessions() is the future-safe
+      // way to add fields to SessionSummary without silently
+      // breaking every friend's cached data.
+      const envelope = {
+        version: SESSIONS_CACHE_VERSION,
+        sessions: this._sessions(),
+      };
       localStorage.setItem(
         this.sessionsKey(sub, personaId),
-        JSON.stringify(this._sessions()),
+        JSON.stringify(envelope),
       );
     } catch {
       /* ignore */

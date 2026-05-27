@@ -1,9 +1,17 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ChatStreamService } from './chat-stream.service';
+import {
+  ChatStreamService,
+  type AgentBackend,
+  type AgentBackendInfo,
+} from './chat-stream.service';
+import { SessionService } from './session.service';
 
-const STORAGE_KEY = 'gigi.selectedBackend';
-
-export type BackendName = 'ollama' | 'anthropic';
+/**
+ * Backend wire identifier — must match swirlock-agent-runtime's
+ * BackendId. Re-exported here so UI components import the type from
+ * one place.
+ */
+export type BackendName = AgentBackend;
 
 export interface BackendInfo {
   name: BackendName;
@@ -13,38 +21,50 @@ export interface BackendInfo {
 }
 
 /**
- * Tracks the list of LLM backends the orchestrator's LLM Host has
- * been configured to serve and the user's chosen backend for this
- * session. The chosen backend is sent on every `turn.submit` so the
- * LLM Host routes each turn to the right adapter.
+ * Read-only view + selection helper for the LLM backends the agent
+ * exposes.
  *
- * Backends are fetched once on app boot. The user's selection is
- * persisted in localStorage so it survives reloads. When the
- * persisted backend is no longer offered by the host (e.g. an
- * Anthropic key was removed), the service silently falls back to
- * the host's reported default.
+ * The list of backends comes from the agent's `backends.list` reply
+ * verbatim — no display names hardcoded client-side. The currently-
+ * selected backend is derived from the **active session's**
+ * `defaultBackend` field, NOT from localStorage: the session is the
+ * source of truth, and the model picker is just a display +
+ * selection wrapper around `session.set_backend` calls. When the
+ * user switches the model, the call round-trips through the WS;
+ * the displayed selection only updates after the agent confirms.
+ *
+ * The picker shows the agent runtime's runtime default
+ * (`AGENT_DEFAULT_BACKEND`) as the pre-selection when no session is
+ * active yet (landing page, between sessions).
  */
 @Injectable({ providedIn: 'root' })
 export class BackendService {
   private readonly stream = inject(ChatStreamService);
+  private readonly session = inject(SessionService);
 
   private readonly _backends = signal<BackendInfo[]>([]);
-  private readonly _defaultBackend = signal<BackendName | null>(null);
-  private readonly _selectedName = signal<BackendName | null>(
-    this.loadInitial(),
-  );
+  private readonly _runtimeDefault = signal<BackendName | null>(null);
   private readonly _loaded = signal<boolean>(false);
+  private readonly _switching = signal<boolean>(false);
 
   readonly backends = this._backends.asReadonly();
-  readonly defaultBackend = this._defaultBackend.asReadonly();
+  readonly runtimeDefault = this._runtimeDefault.asReadonly();
   readonly loaded = this._loaded.asReadonly();
+  readonly switching = this._switching.asReadonly();
 
+  /**
+   * The backend currently in effect for the next turn:
+   *   - the active session's `defaultBackend` when one is set
+   *   - the runtime's default backend otherwise
+   *   - null until backends.list has resolved at least once
+   */
   readonly selectedName = computed<BackendName | null>(() => {
-    const persisted = this._selectedName();
-    const fallback = this._defaultBackend();
-    const offered = this._backends().map((b) => b.name);
-    if (persisted && offered.includes(persisted)) return persisted;
-    return fallback;
+    const activeSession = this.session.activeSession();
+    const sessionBackend = activeSession?.defaultBackend ?? null;
+    if (sessionBackend) {
+      return sessionBackend as BackendName;
+    }
+    return this._runtimeDefault();
   });
 
   readonly selected = computed<BackendInfo | null>(() => {
@@ -59,46 +79,56 @@ export class BackendService {
   });
 
   /**
-   * Asks the orchestrator for the LLM Host's configured backends.
-   * Safe to call multiple times — the second call replaces the
-   * cached list (so model swaps on the host become visible without
-   * a UI reload).
+   * Fetches the agent's backend list. Safe to call multiple times;
+   * each call replaces the cached list so a runtime reconfig is
+   * visible without a UI reload.
    */
   async refresh(): Promise<void> {
     try {
       const res = await this.stream.listBackends();
-      if (res.backends.length === 0) {
-        // Host reported zero backends — keep loaded=false so the
-        // message-bubble falls back to its static modelId label.
-        return;
-      }
-      this._backends.set(res.backends);
-      this._defaultBackend.set(res.defaultBackend);
+      this._backends.set(
+        res.backends.map((b) => toBackendInfo(b)),
+      );
+      this._runtimeDefault.set(res.defaultBackend);
       this._loaded.set(true);
     } catch {
-      // Older orchestrators don't speak backends.list. Keep
-      // loaded=false so the message-bubble falls back to its static
-      // modelId label and friends-on-older-builds see no change.
+      // Agent unreachable or unknown error — leave the picker empty;
+      // the message-bubble will fall back to its plain modelId label.
     }
   }
 
-  select(name: BackendName): void {
-    if (!this._backends().some((b) => b.name === name)) return;
-    this._selectedName.set(name);
+  /**
+   * Switches the active session to the given backend. Sends
+   * `session.set_backend` and waits for the reply before resolving;
+   * the UI's selectedName signal updates as soon as the session's
+   * defaultBackend changes in SessionService state.
+   *
+   * Throws when there is no active session or the agent rejects the
+   * change.
+   */
+  async select(name: BackendName): Promise<void> {
+    if (!this._backends().some((b) => b.name === name)) {
+      throw new Error(`unknown backend: ${name}`);
+    }
+    const activeId = this.session.activeId();
+    if (!activeId) {
+      throw new Error('no active session to switch backend on');
+    }
+    if (this.selectedName() === name) return; // no-op
+    this._switching.set(true);
     try {
-      localStorage.setItem(STORAGE_KEY, name);
-    } catch {
-      /* storage unavailable; ignore */
+      await this.session.setActiveSessionBackend(name);
+    } finally {
+      this._switching.set(false);
     }
   }
+}
 
-  private loadInitial(): BackendName | null {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored === 'ollama' || stored === 'anthropic') return stored;
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
+function toBackendInfo(b: AgentBackendInfo): BackendInfo {
+  return {
+    name: b.name,
+    displayName: b.displayName,
+    modelId: b.defaultModelId,
+    location: b.location,
+  };
 }

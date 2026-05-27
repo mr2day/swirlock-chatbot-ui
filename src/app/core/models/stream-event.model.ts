@@ -50,7 +50,11 @@ export type ChatStreamEvent =
   | {
       type: 'turn.accepted' | 'turn.started';
       correlationId: string;
-      payload: Record<string, never>;
+      /** Per-turn attribution from the agent — which backend/model is
+       *  going to serve this turn. Carried into ChatMessage.attribution
+       *  on the assistant placeholder so per-message attribution is
+       *  visible immediately, before the turn streams. */
+      payload: { backend?: string; modelId?: string };
     }
   | {
       type: 'turn.queued';

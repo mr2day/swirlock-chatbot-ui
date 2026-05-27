@@ -48,6 +48,9 @@ export interface CreateSessionResponseData {
   sessionId: string;
   createdAt: string;
   status: 'active';
+  /** Backend the agent pinned on the new session (its
+   *  AGENT_DEFAULT_BACKEND when the client didn't specify one). */
+  defaultBackend: string | null;
 }
 
 export interface CreateSessionResponse {
@@ -64,6 +67,9 @@ export interface GetSessionResponseData {
   sessionId: string;
   personaId: string | null;
   personaName: string | null;
+  /** Backend currently pinned on this session. New turns use it
+   *  unless the client overrides per-turn. */
+  defaultBackend: string | null;
   createdAt: string;
   updatedAt: string;
   status: string;
@@ -95,6 +101,9 @@ export interface PersistedMessage {
    * `messages.citations_json` column.
    */
   citations?: CitationRef[];
+  /** Which backend + model produced this assistant turn. Null for
+   *  user messages and for legacy rows without attribution. */
+  attribution?: { backend: string; modelId: string };
 }
 
 export interface DeleteSessionResponse {

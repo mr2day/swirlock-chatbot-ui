@@ -43,7 +43,27 @@ export interface StreamHandle {
   cancel(): void;
 }
 
-type AgentBackend = 'anthropic' | 'mistral-online' | 'mistral-local';
+/**
+ * Backend identifier wire format — must match the agent runtime's
+ * BackendId union. Widen here whenever the agent gains a new backend.
+ */
+export type AgentBackend =
+  | 'anthropic'
+  | 'mistral-online'
+  | 'mistral-local'
+  | 'ollama-local';
+
+/**
+ * Backend descriptor as it arrives from the agent's backends.list
+ * reply. Used verbatim by the UI's model picker — no display strings
+ * are hardcoded client-side.
+ */
+export interface AgentBackendInfo {
+  name: AgentBackend;
+  displayName: string;
+  defaultModelId: string;
+  location: 'cloud' | 'local';
+}
 
 interface ServerFrame {
   type: string;
@@ -83,6 +103,14 @@ export class ChatStreamService {
   private ws: WebSocket | null = null;
   private connecting: Promise<WebSocket> | null = null;
   private authenticated = false;
+  /**
+   * The reason auth was rejected, captured from the pre-auth error
+   * frame. Used by failPending() so callers see "Invalid Compact JWS"
+   * or "unexpected aud claim" instead of the generic "WebSocket
+   * closed" — which used to happen because the close event fires
+   * just after the rejection and overrode the real reason.
+   */
+  private lastAuthError: string | null = null;
 
   // Frames queued before the socket is open / authenticated.
   private readonly preauthQueue: unknown[] = [];
@@ -98,20 +126,14 @@ export class ChatStreamService {
   private readonly _thinkingSupported = signal<boolean | null>(null);
   readonly modelId = this._modelId.asReadonly();
   readonly thinkingSupported = this._thinkingSupported.asReadonly();
-  private modelInfoInflight: Promise<{
-    modelId: string;
-    thinkingSupported: boolean;
-  }> | null = null;
 
   /**
-   * Returns the LLM model identity + capability flags. The new agent
-   * doesn't expose a model.status endpoint; we synthesize from the
-   * default Anthropic Haiku build the agent runtime is configured
-   * with. `thinkingSupported` is false until the agent gates extended
-   * thinking through.
+   * Returns the agent's currently-pinned default model + capability
+   * flags. Cached after the first resolution; force=true bypasses.
+   * `thinkingSupported` is false until the agent gates extended
+   * thinking through (no provider exposes it on the wire today).
    */
   async getModelInfo(args?: {
-    backend?: AgentBackend;
     force?: boolean;
   }): Promise<{ modelId: string; thinkingSupported: boolean }> {
     const force = args?.force === true;
@@ -121,28 +143,17 @@ export class ChatStreamService {
       if (cached !== null && cachedThink !== null) {
         return { modelId: cached, thinkingSupported: cachedThink };
       }
-      if (this.modelInfoInflight) return this.modelInfoInflight;
     }
-    const inflight = this.listBackends()
-      .then(({ backends, defaultBackend }) => {
-        const chosen =
-          backends.find((b) => b.name === (args?.backend ?? defaultBackend)) ??
-          backends[0];
-        const info = {
-          modelId: chosen?.modelId ?? 'claude-haiku-4-5-20251001',
-          thinkingSupported: false,
-        };
-        if (!args?.backend) {
-          this._modelId.set(info.modelId);
-          this._thinkingSupported.set(info.thinkingSupported);
-        }
-        return info;
-      })
-      .finally(() => {
-        if (!args?.backend) this.modelInfoInflight = null;
-      });
-    if (!args?.backend) this.modelInfoInflight = inflight;
-    return inflight;
+    const { backends, defaultBackend } = await this.listBackends();
+    const chosen =
+      backends.find((b) => b.name === defaultBackend) ?? backends[0];
+    const info = {
+      modelId: chosen?.defaultModelId ?? 'unknown',
+      thinkingSupported: false,
+    };
+    this._modelId.set(info.modelId);
+    this._thinkingSupported.set(info.thinkingSupported);
+    return info;
   }
 
   async getModelId(): Promise<string> {
@@ -150,36 +161,52 @@ export class ChatStreamService {
   }
 
   /**
-   * Returns the runtime's available backends. The new agent exposes
-   * `anthropic`, `mistral-online` (when MISTRAL_API_KEY is set), and
-   * `mistral-local` (always; calls vLLM). The UI's BackendService
-   * currently types BackendName as `'ollama' | 'anthropic'`, so we
-   * project the agent's list onto that narrow union — only
-   * `anthropic` survives. Widening BackendName is a follow-up.
+   * Returns the runtime's available backends, verbatim from the agent's
+   * `backends.list` reply. Display strings come from the server.
    */
   async listBackends(): Promise<{
-    defaultBackend: 'ollama' | 'anthropic';
-    backends: Array<{
-      name: 'ollama' | 'anthropic';
-      displayName: string;
-      modelId: string;
-      location: 'local' | 'cloud';
-    }>;
+    defaultBackend: AgentBackend;
+    backends: AgentBackendInfo[];
   }> {
     const id = uuid();
     const reply = await this.request(id, 'backends.list', 'backends.list', {});
-    const backends = (reply['backends'] as AgentBackend[] | undefined) ?? [];
-    const projected = backends
-      .filter((b): b is 'anthropic' => b === 'anthropic')
-      .map((b) => ({
-        name: b,
-        displayName: 'Claude Haiku 4.5',
-        modelId: 'claude-haiku-4-5-20251001',
-        location: 'cloud' as const,
-      }));
     return {
-      defaultBackend: 'anthropic',
-      backends: projected,
+      defaultBackend: reply['defaultBackend'] as AgentBackend,
+      backends: (reply['backends'] as AgentBackendInfo[] | undefined) ?? [],
+    };
+  }
+
+  /**
+   * Asks the agent to pin a different default backend on a session.
+   * Resolves with the updated PublicSession (callers should use the
+   * returned session as the new source of truth — including
+   * defaultBackend, updatedAt). The agent persists the change before
+   * replying, so optimistic UI updates are not needed.
+   */
+  async setSessionBackend(args: {
+    sessionId: string;
+    backend: AgentBackend;
+  }): Promise<{
+    sessionId: string;
+    defaultBackend: AgentBackend;
+    updatedAt: string;
+  }> {
+    const id = uuid();
+    const reply = await this.request(
+      id,
+      'session.set_backend',
+      'session.backend_set',
+      { sessionId: args.sessionId, backend: args.backend },
+    );
+    const session = reply['session'] as {
+      id: string;
+      defaultBackend: AgentBackend | null;
+      updatedAt: string;
+    };
+    return {
+      sessionId: session.id,
+      defaultBackend: (session.defaultBackend ?? args.backend) as AgentBackend,
+      updatedAt: session.updatedAt,
     };
   }
 
@@ -190,14 +217,21 @@ export class ChatStreamService {
     correlationId?: string;
   }): Promise<CreateSessionResponse> {
     const id = args.correlationId ?? uuid();
+    // No `defaultBackend` sent — the agent uses the user's saved
+    // preference (or AGENT_DEFAULT_BACKEND if none) when the client
+    // omits it. No `title` sent — the agent auto-derives from the
+    // first user message. `clientMetadata.personaId` is persisted
+    // server-side so listSessions can scope the sidebar by persona
+    // (replaces the client-side localStorage intersection that
+    // silently hid all sessions on a fresh device).
     return this.request(id, 'session.create', 'session.created', {
-      title: args.persona.name,
       systemPrompt: args.persona.systemPrompt,
-      defaultBackend: 'anthropic',
+      clientMetadata: { personaId: args.persona.id },
     }).then((reply) => {
       const session = reply['session'] as {
         id: string;
         createdAt: string;
+        defaultBackend: AgentBackend | null;
       };
       return {
         meta: this.meta(id),
@@ -205,12 +239,13 @@ export class ChatStreamService {
           sessionId: session.id,
           createdAt: session.createdAt,
           status: 'active' as const,
+          defaultBackend: session.defaultBackend,
         },
       };
     });
   }
 
-  listSessions(_args?: {
+  listSessions(args?: {
     personaId?: string;
     correlationId?: string;
   }): Promise<{
@@ -218,27 +253,37 @@ export class ChatStreamService {
       sessionId: string;
       personaId: string | null;
       title: string;
+      defaultBackend: string | null;
       createdAt: string;
       updatedAt: string;
     }[];
   }> {
-    // The new agent has no persona awareness, so the personaId filter
-    // is ignored on the wire. Callers that care about persona scoping
-    // filter client-side against the localStorage cache.
+    // Persona scoping is server-side now: pass {personaId} as a
+    // clientMetadata filter; the agent does JSONB containment on
+    // sessions.client_metadata and returns only matching rows.
+    // Survives device swaps + localStorage clears (the regression
+    // the previous local-cache intersection had).
     const id = uuid();
-    return this.request(id, 'session.list', 'session.list', {}).then(
+    const extras: Record<string, unknown> = {};
+    if (args?.personaId) {
+      extras['clientMetadataFilter'] = { personaId: args.personaId };
+    }
+    return this.request(id, 'session.list', 'session.list', extras).then(
       (reply) => {
         const list = (reply['sessions'] ?? []) as Array<{
           id: string;
           title: string | null;
+          defaultBackend: string | null;
+          clientMetadata: { personaId?: string } | null;
           createdAt: string;
           updatedAt: string;
         }>;
         return {
           sessions: list.map((s) => ({
             sessionId: s.id,
-            personaId: null,
+            personaId: s.clientMetadata?.personaId ?? null,
             title: s.title ?? 'New chat',
+            defaultBackend: s.defaultBackend,
             createdAt: s.createdAt,
             updatedAt: s.updatedAt,
           })),
@@ -257,6 +302,8 @@ export class ChatStreamService {
       const session = reply['session'] as {
         id: string;
         title: string | null;
+        defaultBackend: AgentBackend | null;
+        clientMetadata: { personaId?: string } | null;
         createdAt: string;
         updatedAt: string;
         status: string;
@@ -269,6 +316,7 @@ export class ChatStreamService {
         text: string;
         seq: number;
         createdAt: string;
+        metadata: { backend?: string; modelId?: string } | null;
       }>;
       const persisted: PersistedMessage[] = messages
         // Hide pure tool-call / tool-result messages from the UI —
@@ -282,15 +330,27 @@ export class ChatStreamService {
           role: m.role === 'system' ? 'assistant' : (m.role as 'user' | 'assistant'),
           content: m.text,
           createdAt: m.createdAt,
+          ...(m.metadata?.backend && m.metadata?.modelId
+            ? {
+                attribution: {
+                  backend: m.metadata.backend,
+                  modelId: m.metadata.modelId,
+                },
+              }
+            : {}),
         }));
       return {
         meta: this.meta(correlationId),
         data: {
           sessionId: session.id,
-          // The new agent has no persona; SessionService treats
-          // `personaId: null` as "stay in current persona on open."
-          personaId: null,
+          // personaId now flows back from the server-side metadata
+          // bag — set when the chatbot UI created the session, null
+          // for sessions from other clients. The chat-page uses this
+          // to sync the active persona when a session is opened by
+          // URL on a different device.
+          personaId: session.clientMetadata?.personaId ?? null,
           personaName: null,
+          defaultBackend: session.defaultBackend,
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
           status: session.status,
@@ -384,11 +444,11 @@ export class ChatStreamService {
 
     return {
       cancel: () => {
-        // The new agent has no cancel verb on the gateway today; we
-        // mark the local turn as cancelled so the bubble settles, but
-        // the agent will still complete its in-flight model call.
         if (this.activeTurn !== active) return;
-        this.activeTurn = null;
+        // Tell the agent to abort the in-flight provider call. Fire
+        // and forget: the matching `turn.error` will arrive shortly
+        // and the loop in handleFrame will tear the turn down.
+        this.sendOrQueue({ type: 'turn.cancel', turnId: active.turnId });
         active.onClose?.({ clean: false, reason: 'cancelled' });
       },
     };
@@ -479,6 +539,13 @@ export class ChatStreamService {
           if (frame.type === 'error') {
             const message =
               (frame['message'] as string | undefined) ?? 'auth failed';
+            // Stash the reason so the close-event handler (which
+            // fires right after) reports it to pending requests
+            // instead of the generic "WebSocket closed". Without
+            // this, JWT verification failures (audience mismatch,
+            // expired token, missing claim) reach the UI as the
+            // useless "WebSocket closed" string.
+            this.lastAuthError = message;
             reject(new Error(message));
             try {
               ws.close();
@@ -496,13 +563,15 @@ export class ChatStreamService {
       ws.addEventListener('close', (ev) => {
         if (this.ws === ws) this.ws = null;
         this.authenticated = false;
-        this.failPending(new Error('WebSocket closed'));
+        const reason = this.lastAuthError ?? 'WebSocket closed';
+        this.lastAuthError = null;
+        this.failPending(new Error(reason));
         const active = this.activeTurn;
         this.activeTurn = null;
         active?.onClose?.({
           clean: ev.wasClean,
           code: ev.code,
-          reason: ev.reason,
+          reason: ev.reason || reason,
         });
       });
 
@@ -569,12 +638,22 @@ export class ChatStreamService {
   ): ChatStreamEvent | null {
     const turnId = active.turnId;
     switch (frame.type) {
-      case 'turn.accepted':
+      case 'turn.accepted': {
+        // Forward backend + model so the UI can stamp the assistant
+        // placeholder with attribution immediately, before any text
+        // streams in. SessionService picks these up and writes them
+        // into ChatMessage.attribution.
+        const backend = frame['backend'];
+        const model = frame['model'];
         return {
           type: 'turn.started',
           correlationId: turnId,
-          payload: {} as Record<string, never>,
+          payload: {
+            ...(typeof backend === 'string' ? { backend } : {}),
+            ...(typeof model === 'string' ? { modelId: model } : {}),
+          },
         };
+      }
 
       case 'turn.text_delta': {
         const delta = (frame['delta'] as string | undefined) ?? '';

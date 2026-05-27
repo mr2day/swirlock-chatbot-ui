@@ -36,6 +36,17 @@ export interface ChatMessageImage {
   name?: string;
 }
 
+/**
+ * Per-message attribution of which backend + model produced an
+ * assistant turn. Surfaced under each assistant bubble. Null for
+ * user messages and for legacy assistant messages persisted before
+ * the agent started stamping metadata.
+ */
+export interface MessageAttribution {
+  backend: string;
+  modelId: string;
+}
+
 export interface ChatMessage {
   /** Stable client-side id; replaced with `messageId` after persistence. */
   localId: string;
@@ -44,6 +55,9 @@ export interface ChatMessage {
   /** Server-assigned turn id once the orchestrator emits `done`. */
   turnId?: string;
   role: 'user' | 'assistant';
+  /** Which backend/model produced this assistant turn. Null for user
+   *  messages and for legacy assistant rows without attribution. */
+  attribution?: MessageAttribution | null;
   /** Visible message content. Streams in chunk-by-chunk for assistant. */
   content: string;
   /** Inline images the user attached to this turn (paste, drag-drop, file picker). */
@@ -79,6 +93,12 @@ export interface SessionSummary {
    */
   personaId: string | null;
   title: string;
+  /**
+   * The backend this session is currently pinned to. New turns use
+   * this unless the client overrides per-turn. `null` means "use the
+   * server's default at submit time."
+   */
+  defaultBackend: string | null;
   createdAt: string;
   updatedAt: string;
 }
