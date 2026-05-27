@@ -103,6 +103,14 @@ export class ChatStreamService {
   private ws: WebSocket | null = null;
   private connecting: Promise<WebSocket> | null = null;
   private authenticated = false;
+  /**
+   * The reason auth was rejected, captured from the pre-auth error
+   * frame. Used by failPending() so callers see "Invalid Compact JWS"
+   * or "unexpected aud claim" instead of the generic "WebSocket
+   * closed" — which used to happen because the close event fires
+   * just after the rejection and overrode the real reason.
+   */
+  private lastAuthError: string | null = null;
 
   // Frames queued before the socket is open / authenticated.
   private readonly preauthQueue: unknown[] = [];
@@ -209,13 +217,16 @@ export class ChatStreamService {
     correlationId?: string;
   }): Promise<CreateSessionResponse> {
     const id = args.correlationId ?? uuid();
-    // No `defaultBackend` sent — the agent uses its
-    // AGENT_DEFAULT_BACKEND when the client omits it. No `title`
-    // sent — the agent auto-derives it from the first user message
-    // and writes it onto the session row. Until that first message
-    // lands, the title is null and the sidebar shows "New chat".
+    // No `defaultBackend` sent — the agent uses the user's saved
+    // preference (or AGENT_DEFAULT_BACKEND if none) when the client
+    // omits it. No `title` sent — the agent auto-derives from the
+    // first user message. `clientMetadata.personaId` is persisted
+    // server-side so listSessions can scope the sidebar by persona
+    // (replaces the client-side localStorage intersection that
+    // silently hid all sessions on a fresh device).
     return this.request(id, 'session.create', 'session.created', {
       systemPrompt: args.persona.systemPrompt,
+      clientMetadata: { personaId: args.persona.id },
     }).then((reply) => {
       const session = reply['session'] as {
         id: string;
@@ -234,7 +245,7 @@ export class ChatStreamService {
     });
   }
 
-  listSessions(_args?: {
+  listSessions(args?: {
     personaId?: string;
     correlationId?: string;
   }): Promise<{
@@ -247,23 +258,30 @@ export class ChatStreamService {
       updatedAt: string;
     }[];
   }> {
-    // The new agent has no persona awareness, so the personaId filter
-    // is ignored on the wire. Callers that care about persona scoping
-    // filter client-side against the localStorage cache.
+    // Persona scoping is server-side now: pass {personaId} as a
+    // clientMetadata filter; the agent does JSONB containment on
+    // sessions.client_metadata and returns only matching rows.
+    // Survives device swaps + localStorage clears (the regression
+    // the previous local-cache intersection had).
     const id = uuid();
-    return this.request(id, 'session.list', 'session.list', {}).then(
+    const extras: Record<string, unknown> = {};
+    if (args?.personaId) {
+      extras['clientMetadataFilter'] = { personaId: args.personaId };
+    }
+    return this.request(id, 'session.list', 'session.list', extras).then(
       (reply) => {
         const list = (reply['sessions'] ?? []) as Array<{
           id: string;
           title: string | null;
           defaultBackend: string | null;
+          clientMetadata: { personaId?: string } | null;
           createdAt: string;
           updatedAt: string;
         }>;
         return {
           sessions: list.map((s) => ({
             sessionId: s.id,
-            personaId: null,
+            personaId: s.clientMetadata?.personaId ?? null,
             title: s.title ?? 'New chat',
             defaultBackend: s.defaultBackend,
             createdAt: s.createdAt,
@@ -285,6 +303,7 @@ export class ChatStreamService {
         id: string;
         title: string | null;
         defaultBackend: AgentBackend | null;
+        clientMetadata: { personaId?: string } | null;
         createdAt: string;
         updatedAt: string;
         status: string;
@@ -324,9 +343,12 @@ export class ChatStreamService {
         meta: this.meta(correlationId),
         data: {
           sessionId: session.id,
-          // The new agent has no persona; SessionService treats
-          // `personaId: null` as "stay in current persona on open."
-          personaId: null,
+          // personaId now flows back from the server-side metadata
+          // bag — set when the chatbot UI created the session, null
+          // for sessions from other clients. The chat-page uses this
+          // to sync the active persona when a session is opened by
+          // URL on a different device.
+          personaId: session.clientMetadata?.personaId ?? null,
           personaName: null,
           defaultBackend: session.defaultBackend,
           createdAt: session.createdAt,
@@ -422,11 +444,11 @@ export class ChatStreamService {
 
     return {
       cancel: () => {
-        // The new agent has no cancel verb on the gateway today; we
-        // mark the local turn as cancelled so the bubble settles, but
-        // the agent will still complete its in-flight model call.
         if (this.activeTurn !== active) return;
-        this.activeTurn = null;
+        // Tell the agent to abort the in-flight provider call. Fire
+        // and forget: the matching `turn.error` will arrive shortly
+        // and the loop in handleFrame will tear the turn down.
+        this.sendOrQueue({ type: 'turn.cancel', turnId: active.turnId });
         active.onClose?.({ clean: false, reason: 'cancelled' });
       },
     };
@@ -517,6 +539,13 @@ export class ChatStreamService {
           if (frame.type === 'error') {
             const message =
               (frame['message'] as string | undefined) ?? 'auth failed';
+            // Stash the reason so the close-event handler (which
+            // fires right after) reports it to pending requests
+            // instead of the generic "WebSocket closed". Without
+            // this, JWT verification failures (audience mismatch,
+            // expired token, missing claim) reach the UI as the
+            // useless "WebSocket closed" string.
+            this.lastAuthError = message;
             reject(new Error(message));
             try {
               ws.close();
@@ -534,13 +563,15 @@ export class ChatStreamService {
       ws.addEventListener('close', (ev) => {
         if (this.ws === ws) this.ws = null;
         this.authenticated = false;
-        this.failPending(new Error('WebSocket closed'));
+        const reason = this.lastAuthError ?? 'WebSocket closed';
+        this.lastAuthError = null;
+        this.failPending(new Error(reason));
         const active = this.activeTurn;
         this.activeTurn = null;
         active?.onClose?.({
           clean: ev.wasClean,
           code: ev.code,
-          reason: ev.reason,
+          reason: ev.reason || reason,
         });
       });
 

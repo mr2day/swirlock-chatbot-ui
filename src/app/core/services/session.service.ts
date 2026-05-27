@@ -25,6 +25,39 @@ const SESSIONS_KEY_PREFIX = 'gigi.sessions.';
 const ACTIVE_SESSION_KEY_PREFIX = 'gigi.activeSessionId.';
 const LOCAL_USER_DISPLAY = 'You';
 
+/**
+ * Bump this whenever SessionSummary gains a required field. The
+ * envelope in localStorage records the version the data was written
+ * with; `migrateSessions` runs the chain of upgraders before handing
+ * the data back. Without this, adding a required field silently
+ * crashes every friend's cached client until they manually refresh.
+ *
+ * History:
+ *   0 → raw SessionSummary[] (pre-versioning legacy)
+ *   1 → adds `defaultBackend: string | null`; legacy rows fill with
+ *       null so BackendService falls through to the runtime default
+ *       until a refresh / switch fixes them.
+ */
+const SESSIONS_CACHE_VERSION = 1;
+
+function migrateSessions(
+  rows: unknown[],
+  fromVersion: number,
+): SessionSummary[] {
+  if (!Array.isArray(rows)) return [];
+  let next: Array<Record<string, unknown>> = rows
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+    .map((r) => ({ ...r }));
+  // v0 → v1: ensure defaultBackend is present.
+  if (fromVersion < 1) {
+    next = next.map((r) => ({
+      defaultBackend: r['defaultBackend'] ?? null,
+      ...r,
+    }));
+  }
+  return next as unknown as SessionSummary[];
+}
+
 try {
   localStorage.removeItem(LEGACY_SESSIONS_KEY);
   localStorage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
@@ -210,16 +243,12 @@ export class SessionService {
   }
 
   /**
-   * Refreshes the per-persona sidebar list from the agent. The agent
-   * is persona-blind today (every session belongs to (client, user)
-   * only, not (client, user, persona)), so the server returns all of
-   * this user's sessions regardless of which persona is active. We
-   * intersect the server list with the IDs we have in the local
-   * per-persona cache — sessions we ourselves created under THIS
-   * persona — and discard the rest. The trade-off: sessions created
-   * on a different device don't appear until they're opened
-   * explicitly via URL. Multi-device cross-persona sync would need a
-   * server-side metadata column (followup).
+   * Refreshes the per-persona sidebar list from the agent. Persona
+   * scoping is server-side now: we pass `personaId` and the agent
+   * filters `sessions` by `client_metadata @> {personaId}`. The
+   * server is authoritative — no client-side intersection — so a
+   * fresh device / cleared localStorage still sees every session
+   * the user created on this persona from any device.
    */
   private async refreshSessionsFromServer(
     sub: string,
@@ -229,11 +258,7 @@ export class SessionService {
       const { sessions } = await this.stream.listSessions({ personaId });
       if (this.currentSub() !== sub) return;
       if (this.persona.activeId() !== personaId) return;
-      const known = new Set(
-        this.loadSessions(sub, personaId).map((s) => s.sessionId),
-      );
-      const filtered = sessions.filter((s) => known.has(s.sessionId));
-      this._sessions.set(filtered);
+      this._sessions.set(sessions);
       this.persistSessions();
     } catch (err) {
       console.warn('[session] failed to load sessions from server', err);
@@ -854,8 +879,18 @@ export class SessionService {
     try {
       const raw = localStorage.getItem(this.sessionsKey(sub, personaId));
       if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as SessionSummary[]) : [];
+      const parsed = JSON.parse(raw) as
+        | SessionSummary[]
+        | { version: number; sessions: SessionSummary[] };
+      // Legacy: raw array (pre-version) is still readable; treated
+      // as version 0 and silently upgraded on next persist.
+      if (Array.isArray(parsed)) {
+        return migrateSessions(parsed, 0);
+      }
+      if (parsed && typeof parsed === 'object' && 'sessions' in parsed) {
+        return migrateSessions(parsed.sessions, parsed.version ?? 0);
+      }
+      return [];
     } catch {
       return [];
     }
@@ -866,9 +901,17 @@ export class SessionService {
     if (!sub) return;
     const personaId = this.persona.activeId();
     try {
+      // Versioned envelope: bumping SESSIONS_CACHE_VERSION + adding
+      // a migration step in migrateSessions() is the future-safe
+      // way to add fields to SessionSummary without silently
+      // breaking every friend's cached data.
+      const envelope = {
+        version: SESSIONS_CACHE_VERSION,
+        sessions: this._sessions(),
+      };
       localStorage.setItem(
         this.sessionsKey(sub, personaId),
-        JSON.stringify(this._sessions()),
+        JSON.stringify(envelope),
       );
     } catch {
       /* ignore */
