@@ -389,7 +389,6 @@ export class ChatStreamService {
     includeDiagnostics?: boolean;
     images?: { dataUrl: string; mimeType: string }[];
     userLocation?: import('../models/chat.model').UserLocation;
-    backend?: 'ollama' | 'anthropic';
     onEvent: (event: ChatStreamEvent) => void;
     onClose?: (info: {
       clean: boolean;
@@ -425,21 +424,15 @@ export class ChatStreamService {
     };
     this.activeTurn = active;
 
-    // Map UI backend selection ('anthropic') to the agent's BackendChoice
-    // shape. 'ollama' (legacy) is silently ignored — the agent has no
-    // ollama backend and the BackendService will pick the default.
-    const backend =
-      args.backend === 'anthropic'
-        ? { backend: 'anthropic' as const }
-        : undefined;
-
+    // No per-turn backend override on the wire — model selection
+    // lives on session.default_backend (set via session.set_backend).
+    // The agent reads that on every turn.
     this.sendOrQueue({
       type: 'turn.submit',
       id: turnId,
       sessionId: args.sessionId,
       message: args.text,
       turnId,
-      ...(backend ? { backend } : {}),
     });
 
     return {
