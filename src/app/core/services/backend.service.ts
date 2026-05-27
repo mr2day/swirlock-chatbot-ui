@@ -5,6 +5,7 @@ import {
   type AgentBackendInfo,
 } from './chat-stream.service';
 import { SessionService } from './session.service';
+import { BACKEND_PREFERENCE_KEY } from '../storage-keys';
 
 /**
  * Backend wire identifier — must match swirlock-agent-runtime's
@@ -46,11 +47,19 @@ export class BackendService {
   private readonly _runtimeDefault = signal<BackendName | null>(null);
   private readonly _loaded = signal<boolean>(false);
   private readonly _switching = signal<boolean>(false);
+  // User's pre-selection (when they pick a model in the sidebar before
+  // any session is active). Initialized from localStorage so the
+  // preference is sticky across reloads. Applied as `defaultBackend`
+  // on the next `session.create`.
+  private readonly _pendingDefault = signal<BackendName | null>(
+    readStoredPreference(),
+  );
 
   readonly backends = this._backends.asReadonly();
   readonly runtimeDefault = this._runtimeDefault.asReadonly();
   readonly loaded = this._loaded.asReadonly();
   readonly switching = this._switching.asReadonly();
+  readonly pendingDefault = this._pendingDefault.asReadonly();
 
   /**
    * The backend currently in effect for the next turn:
@@ -64,7 +73,10 @@ export class BackendService {
     if (sessionBackend) {
       return sessionBackend as BackendName;
     }
-    return this._runtimeDefault();
+    // No active session: fall back to the user's pre-selection (set
+    // by clicking the picker without a session open), then to the
+    // runtime's configured default.
+    return this._pendingDefault() ?? this._runtimeDefault();
   });
 
   readonly selected = computed<BackendInfo | null>(() => {
@@ -110,14 +122,23 @@ export class BackendService {
     if (!this._backends().some((b) => b.name === name)) {
       throw new Error(`unknown backend: ${name}`);
     }
+    if (this.selectedName() === name) return; // no-op
     const activeId = this.session.activeId();
     if (!activeId) {
-      throw new Error('no active session to switch backend on');
+      // No active session — record the pre-selection locally; the
+      // next `session.create` reads it and passes it as
+      // `defaultBackend` so the new session honors the choice.
+      this._pendingDefault.set(name);
+      writeStoredPreference(name);
+      return;
     }
-    if (this.selectedName() === name) return; // no-op
     this._switching.set(true);
     try {
       await this.session.setActiveSessionBackend(name);
+      // Also update the pre-selection so a fresh "New chat" after
+      // this point keeps using the same backend by default.
+      this._pendingDefault.set(name);
+      writeStoredPreference(name);
     } finally {
       this._switching.set(false);
     }
@@ -131,4 +152,21 @@ function toBackendInfo(b: AgentBackendInfo): BackendInfo {
     modelId: b.defaultModelId,
     location: b.location,
   };
+}
+
+function readStoredPreference(): BackendName | null {
+  try {
+    return localStorage.getItem(BACKEND_PREFERENCE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPreference(name: BackendName): void {
+  try {
+    localStorage.setItem(BACKEND_PREFERENCE_KEY, name);
+  } catch {
+    // localStorage unavailable (private mode, quota) — preference
+    // becomes session-scoped instead of persistent. Not fatal.
+  }
 }

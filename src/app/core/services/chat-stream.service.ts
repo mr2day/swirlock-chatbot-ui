@@ -227,23 +227,31 @@ export class ChatStreamService {
     userId: string;
     displayName?: string;
     persona: { id: string; name: string; systemPrompt: string };
+    /** Optional pre-selected backend. When omitted, the agent uses
+     *  the user's server-side saved preference (or
+     *  AGENT_DEFAULT_BACKEND if none). When set, the new session
+     *  pins this backend as its defaultBackend. */
+    defaultBackend?: AgentBackend | null;
     correlationId?: string;
   }): Promise<CreateSessionResponse> {
     const id = args.correlationId ?? uuid();
-    // No `defaultBackend` sent — the agent uses the user's saved
-    // preference (or AGENT_DEFAULT_BACKEND if none) when the client
-    // omits it. No `title` sent — the agent auto-derives from the
-    // first user message. `clientMetadata` carries:
+    // `clientMetadata` carries:
     //   - personaId: persisted so listSessions can scope by persona
     //   - timezone: the browser's IANA timezone, used by the agent
     //     to substitute ${currentTime} + ${userTimezone} in the
     //     persona's system prompt at each turn. No permission
     //     prompt — Intl is always available.
+    // No `title` sent — the agent auto-derives from the first user
+    // message.
     const timezone = resolveBrowserTimezone();
-    return this.request(id, 'session.create', 'session.created', {
+    const payload: Record<string, unknown> = {
       systemPrompt: args.persona.systemPrompt,
       clientMetadata: { personaId: args.persona.id, timezone },
-    }).then((reply) => {
+    };
+    if (args.defaultBackend) {
+      payload['defaultBackend'] = args.defaultBackend;
+    }
+    return this.request(id, 'session.create', 'session.created', payload).then((reply) => {
       const session = reply['session'] as {
         id: string;
         createdAt: string;

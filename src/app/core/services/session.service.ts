@@ -15,6 +15,15 @@ import {
 } from './chat-stream.service';
 import { LocationService } from './location.service';
 import { PersonaService } from './persona.service';
+import { BACKEND_PREFERENCE_KEY } from '../storage-keys';
+
+function readPreferredBackend(): string | null {
+  try {
+    return localStorage.getItem(BACKEND_PREFERENCE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 // Per-account localStorage scopes. Pre-auth (dev-token era) keys
 // `gigi.sessions` and `gigi.activeSessionId` are deleted on first boot
@@ -291,6 +300,11 @@ export class SessionService {
       // backend switch immediately reflects in persona introspection.
       // Title is omitted at create time: the agent auto-derives it
       // from the first user message and stamps it on the session row.
+      // If the user picked a model in the sidebar before opening a
+      // session, that preference is in localStorage. Pass it as
+      // `defaultBackend` so the new session honors the pick instead
+      // of falling back to AGENT_DEFAULT_BACKEND on the server.
+      const preferredBackend = readPreferredBackend();
       const res = await this.stream.createSession({
         userId: sub,
         displayName: LOCAL_USER_DISPLAY,
@@ -299,6 +313,7 @@ export class SessionService {
           name: persona.name,
           systemPrompt: persona.systemPromptTemplate,
         },
+        ...(preferredBackend ? { defaultBackend: preferredBackend } : {}),
       });
       const sessionId = res.data.sessionId;
       const summary: SessionSummary = {
