@@ -28,6 +28,21 @@ import { AuthService } from './auth.service';
  * turn.location_required), the corresponding events simply never fire.
  */
 
+/**
+ * Best-effort read of the browser's IANA timezone. Falls back to
+ * 'UTC' on legacy environments where Intl.DateTimeFormat is not
+ * resolved (Capacitor on very old Android, etc.). Stable for the
+ * lifetime of the page; we read it lazily so SSR / unit-test
+ * harnesses without a `window` don't crash on import.
+ */
+function resolveBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
 function uuid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
@@ -220,13 +235,16 @@ export class ChatStreamService {
     // No `defaultBackend` sent — the agent uses the user's saved
     // preference (or AGENT_DEFAULT_BACKEND if none) when the client
     // omits it. No `title` sent — the agent auto-derives from the
-    // first user message. `clientMetadata.personaId` is persisted
-    // server-side so listSessions can scope the sidebar by persona
-    // (replaces the client-side localStorage intersection that
-    // silently hid all sessions on a fresh device).
+    // first user message. `clientMetadata` carries:
+    //   - personaId: persisted so listSessions can scope by persona
+    //   - timezone: the browser's IANA timezone, used by the agent
+    //     to substitute ${currentTime} + ${userTimezone} in the
+    //     persona's system prompt at each turn. No permission
+    //     prompt — Intl is always available.
+    const timezone = resolveBrowserTimezone();
     return this.request(id, 'session.create', 'session.created', {
       systemPrompt: args.persona.systemPrompt,
-      clientMetadata: { personaId: args.persona.id },
+      clientMetadata: { personaId: args.persona.id, timezone },
     }).then((reply) => {
       const session = reply['session'] as {
         id: string;
