@@ -59,13 +59,12 @@ export interface StreamHandle {
 }
 
 /**
- * Backend identifier wire format — must match the agent runtime's
- * BackendId union. Widen here whenever the agent gains a new backend.
+ * Backend identifier wire format. Opaque string — the UI never
+ * branches on specific values; it just renders whatever
+ * `backends.list` returns. Adding/removing a backend in the agent
+ * runtime requires NO UI change.
  */
-export type AgentBackend =
-  | 'anthropic'
-  | 'mistral-online'
-  | 'ollama-local';
+export type AgentBackend = string;
 
 /**
  * Backend descriptor as it arrives from the agent's backends.list
