@@ -1,6 +1,6 @@
 <div class="sidebar">
   <app-persona-switcher [showTagline]="true" />
-  @if (session.hasActiveSession() && backend.loaded()) {
+  @if (backend.loaded()) {
     <app-model-switcher class="sidebar-model-switcher" />
   }
 
@@ -91,6 +91,5 @@
         <span>Sign out</span>
       </button>
     }
-    <span class="footer-text">v0.1 · connected to local orchestrator</span>
   </footer>
 </div>

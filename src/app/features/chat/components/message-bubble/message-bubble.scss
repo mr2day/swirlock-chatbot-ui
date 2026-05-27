@@ -113,13 +113,14 @@
   background: var(--persona-surface-elevated);
 }
 
-.author .model-id {
-  font-size: 0.85rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  text-transform: none;
+.author .attribution {
+  font-size: 0.7em;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: lowercase;
+  opacity: 0.55;
   color: var(--persona-text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .is-user .body .content {

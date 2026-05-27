@@ -41,8 +41,10 @@ export class MessageBubble {
     if (m.role !== 'assistant') return null;
     const a = m.attribution;
     if (!a) return null;
-    const known = this.backend.backends().find((b) => b.name === a.backend);
-    return known ? known.displayName : a.modelId;
+    // Render the raw model id (e.g. `ministral-14b-latest`,
+    // `claude-haiku-4-5-20251001`) — the styling below makes it a
+    // small monospace metadata line, not a human-friendly label.
+    return a.modelId;
   });
 
   protected readonly thinkingOpen = signal<boolean>(true);
