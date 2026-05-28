@@ -182,12 +182,23 @@ export class Composer {
     });
     this.text.set('');
     this.attachments.set([]);
-    // Always restore focus to the textarea after Send so the user can
-    // immediately type the next message. Focus is only lost when the
-    // user clicks outside, per Nick's spec. `setTimeout(0)` lands the
-    // focus AFTER Angular re-renders the send→stop button swap, which
-    // would otherwise knock focus off the textarea.
-    setTimeout(() => this.textarea()?.nativeElement.focus(), 0);
+    // Desktop: refocus the textarea so the user can immediately type
+    // the next message (focus is otherwise knocked off by Angular
+    // re-rendering the send→stop button swap).
+    // Mobile / tablet: blur instead — keeping focus would hold the
+    // soft keyboard open and cover half the screen, so the user can't
+    // see the reply arriving. (pointer: coarse) is the canonical
+    // touch-input media query.
+    const el = this.textarea()?.nativeElement;
+    const isTouch =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(pointer: coarse)').matches;
+    if (isTouch) {
+      el?.blur();
+    } else {
+      setTimeout(() => el?.focus(), 0);
+    }
   }
 
   protected onStop(): void {
