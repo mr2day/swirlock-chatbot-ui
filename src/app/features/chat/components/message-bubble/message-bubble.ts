@@ -121,9 +121,7 @@ export class MessageBubble {
     const label =
       m.stopReason === 'step-budget'
         ? 'Agent ran out of steps before finishing'
-        : m.stopReason === 'tool-quota'
-          ? 'Agent hit a per-tool call quota'
-          : 'Agent stopped on a repeated tool call';
+        : 'Agent stopped on a repeated tool call';
     return { label, detail: m.stopDetail };
   });
 

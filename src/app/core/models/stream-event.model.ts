@@ -119,7 +119,6 @@ export type ChatStreamEvent =
         stopReason?:
           | 'completed'
           | 'step-budget'
-          | 'tool-quota'
           | 'repeat-tool-call';
         stopDetail?: string;
         citations?: CitationRef[];

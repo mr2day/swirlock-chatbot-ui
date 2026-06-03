@@ -746,10 +746,9 @@ export class ChatStreamService {
         const finish =
           (frame['finishReason'] as string | undefined) ?? 'stop';
         const stopReasonRaw = frame['stopReason'] as string | undefined;
-        const stopReason: 'completed' | 'step-budget' | 'tool-quota' | 'repeat-tool-call' | undefined =
+        const stopReason: 'completed' | 'step-budget' | 'repeat-tool-call' | undefined =
           stopReasonRaw === 'completed' ||
           stopReasonRaw === 'step-budget' ||
-          stopReasonRaw === 'tool-quota' ||
           stopReasonRaw === 'repeat-tool-call'
             ? stopReasonRaw
             : undefined;

@@ -82,7 +82,7 @@ export interface ChatMessage {
   /** Why the agent loop ended. 'completed' (or absent) = normal
    *  finish; other values = a safety rail fired and the answer may
    *  be empty/partial. UI shows an inline status badge. */
-  stopReason?: 'completed' | 'step-budget' | 'tool-quota' | 'repeat-tool-call';
+  stopReason?: 'completed' | 'step-budget' | 'repeat-tool-call';
   /** Free-form detail when stopReason is not 'completed'
    *  (e.g. "search_web called 5× (quota 5)"). */
   stopDetail?: string;
