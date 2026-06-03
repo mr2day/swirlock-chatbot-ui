@@ -96,6 +96,18 @@ export class BackendService {
   });
 
   /**
+   * Friendly display name for a backend id (e.g. `anthropic-opus` →
+   * `Claude Opus 4.7`), looked up against the cached `backends.list`
+   * response. Used by message bubbles to label per-turn attribution
+   * with the same human-readable string the picker shows, rather
+   * than the raw provider model id. Returns null when the backend
+   * list hasn't loaded yet so callers can fall back to the modelId.
+   */
+  displayNameFor(name: BackendName): string | null {
+    return this.backends().find((b) => b.name === name)?.displayName ?? null;
+  }
+
+  /**
    * Fetches the agent's backend list. Safe to call multiple times;
    * each call replaces the cached list in `ChatUiState` so a runtime
    * reconfig is visible without a UI reload.

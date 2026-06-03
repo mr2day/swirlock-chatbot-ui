@@ -33,18 +33,19 @@ export class MessageBubble {
 
   /**
    * Display name for the model that produced this assistant turn.
-   * Resolved from BackendService when we know the backend, otherwise
-   * the raw modelId from attribution. Null for user messages.
+   * Resolved from BackendService when we know the backend (e.g.
+   * `Claude Opus 4.7`, `Ministral 14B`), with the raw modelId as a
+   * fallback for when the backend list hasn't loaded yet or the
+   * historical session was served by a backend the runtime no
+   * longer advertises. Null for user messages and for legacy rows
+   * without attribution.
    */
   protected readonly attributionLabel = computed<string | null>(() => {
     const m = this.message();
     if (m.role !== 'assistant') return null;
     const a = m.attribution;
     if (!a) return null;
-    // Render the raw model id (e.g. `ministral-14b-latest`,
-    // `claude-haiku-4-5-20251001`) — the styling below makes it a
-    // small monospace metadata line, not a human-friendly label.
-    return a.modelId;
+    return this.backend.displayNameFor(a.backend) ?? a.modelId;
   });
 
   protected readonly thinkingOpen = signal<boolean>(true);
