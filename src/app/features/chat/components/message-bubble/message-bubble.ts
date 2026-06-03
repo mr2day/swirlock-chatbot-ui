@@ -16,7 +16,7 @@ import { BackendService } from '../../../../core/services/backend.service';
 
 @Component({
   selector: 'app-message-bubble',
-  imports: [],
+  imports: [MessageBubble],
   templateUrl: './message-bubble.html',
   styleUrl: './message-bubble.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -27,6 +27,10 @@ export class MessageBubble {
 
   @Output() readonly grantLocation = new EventEmitter<string>();
   @Output() readonly denyLocation = new EventEmitter<string>();
+  /** Emitted when the user clicks the expand/collapse toggle on a
+   *  summary bubble. Payload is the summary message's localId; the
+   *  parent (chat page) routes it into SessionService. */
+  @Output() readonly toggleSummary = new EventEmitter<string>();
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly backend = inject(BackendService);
@@ -142,5 +146,22 @@ export class MessageBubble {
 
   protected toggleThinking(): void {
     this.thinkingOpen.update((v) => !v);
+  }
+
+  /**
+   * How many original messages this summary block replaces. Read
+   * off the seq range stamped on the summary at session-load time.
+   * Returns 0 for non-summary messages (the template guards on
+   * role first so the value never renders for those).
+   */
+  protected originalCount(): number {
+    const r = this.message().summaryRange;
+    if (!r) return 0;
+    return Math.max(0, r.endSeq - r.startSeq + 1);
+  }
+
+  protected onToggleSummary(): void {
+    if (this.message().role !== 'summary') return;
+    this.toggleSummary.emit(this.message().localId);
   }
 }

@@ -390,7 +390,7 @@ export class SessionService {
         }
       }
 
-      const messages: ChatMessage[] = res.data.messages.map((m) => {
+      const verbatim: ChatMessage[] = res.data.messages.map((m) => {
         const images = this.rehydrateImageRefs(m.images);
         return {
           localId: uuid(),
@@ -411,6 +411,25 @@ export class SessionService {
             : {}),
         };
       });
+
+      // Compactor invariant: summary blocks always cover the OLDEST
+      // seq ranges contiguous from seq=1 forward, never overlapping
+      // verbatim. So summary bubbles always render BEFORE every
+      // verbatim message — no interleaving needed, just prepend in
+      // startSeq order. Each is collapsed by default; the user
+      // clicks the bubble to fetch + display the originals inline.
+      const summaryBubbles: ChatMessage[] = res.data.summaries.map((s) => ({
+        localId: uuid(),
+        messageId: s.id,
+        role: 'summary',
+        content: s.summaryText,
+        thinking: '',
+        status: 'done',
+        createdAt: s.createdAt,
+        summaryRange: { startSeq: s.startSeq, endSeq: s.endSeq },
+        summaryModel: s.summaryModel,
+      }));
+      const messages: ChatMessage[] = [...summaryBubbles, ...verbatim];
       this._messages.set(messages);
 
       const firstUser = messages.find((m) => m.role === 'user');
@@ -434,6 +453,75 @@ export class SessionService {
     } finally {
       this._loading.set(false);
     }
+  }
+
+  /**
+   * Toggle expansion of a summary bubble. On expand, fetches the
+   * original messages for the summary's seq range from the server
+   * and stores them on the summary message's `expanded` field. On
+   * collapse, drops the cached originals. Idempotent: a second
+   * expand call no-ops while the fetch is still in flight.
+   */
+  async toggleSummaryExpansion(summaryLocalId: string): Promise<void> {
+    const sessionId = this._activeId();
+    if (!sessionId) return;
+    const list = this._messages();
+    const target = list.find((m) => m.localId === summaryLocalId);
+    if (!target || target.role !== 'summary') return;
+    if (target.expanding) return;
+
+    if (target.expanded && target.expanded.length > 0) {
+      this.patchSummary(summaryLocalId, { expanded: undefined });
+      return;
+    }
+
+    if (!target.summaryRange) return;
+    this.patchSummary(summaryLocalId, { expanding: true });
+    try {
+      const persisted = await this.stream.fetchMessageRange(
+        sessionId,
+        target.summaryRange.startSeq,
+        target.summaryRange.endSeq,
+      );
+      const expanded: ChatMessage[] = persisted.map((m) => ({
+        localId: uuid(),
+        messageId: m.messageId,
+        turnId: m.turnId,
+        role: m.role === 'system' ? 'assistant' : m.role,
+        content: m.content,
+        thinking: '',
+        status: 'done',
+        createdAt: m.createdAt,
+        ...(m.citations && m.citations.length > 0
+          ? { citations: m.citations }
+          : {}),
+        ...(m.attribution ? { attribution: m.attribution } : {}),
+        ...(m.toolActivity && m.toolActivity.length > 0
+          ? { toolActivity: m.toolActivity }
+          : {}),
+      }));
+      this.patchSummary(summaryLocalId, { expanded, expanding: false });
+    } catch (err) {
+      this.patchSummary(summaryLocalId, { expanding: false });
+      this._error.set(this.errorMessage(err));
+    }
+  }
+
+  /**
+   * In-place patch of a single summary bubble in `_messages`. Used
+   * by the expand/collapse flow above.
+   */
+  private patchSummary(
+    summaryLocalId: string,
+    patch: Partial<ChatMessage>,
+  ): void {
+    this._messages.update((list) =>
+      list.map((m) =>
+        m.localId === summaryLocalId && m.role === 'summary'
+          ? { ...m, ...patch }
+          : m,
+      ),
+    );
   }
 
   async deleteSession(sessionId: string): Promise<void> {

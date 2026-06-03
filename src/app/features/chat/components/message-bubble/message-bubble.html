@@ -1,3 +1,41 @@
+@if (message().role === 'summary') {
+  <section class="summary-block">
+    <header class="summary-head">
+      <span class="summary-label">Earlier context, summarised</span>
+      @if (message().summaryRange; as range) {
+        <span class="summary-range">turns {{ range.startSeq }}–{{ range.endSeq }}</span>
+      }
+      @if (message().summaryModel; as model) {
+        <span class="summary-by">by {{ model }}</span>
+      }
+    </header>
+    <div class="summary-text">{{ message().content }}</div>
+    <button
+      type="button"
+      class="summary-toggle"
+      (click)="onToggleSummary()"
+      [disabled]="message().expanding"
+    >
+      @if (message().expanding) {
+        Loading earlier messages…
+      } @else if (message().expanded?.length) {
+        ▾ Hide earlier messages
+      } @else {
+        ▸ Show the original {{ originalCount() }} earlier messages
+      }
+    </button>
+    @if (message().expanded?.length) {
+      <div class="summary-expanded">
+        @for (child of message().expanded!; track child.localId) {
+          <app-message-bubble
+            [message]="child"
+            [persona]="persona()"
+          />
+        }
+      </div>
+    }
+  </section>
+} @else {
 <article
   class="bubble"
   [class.is-user]="message().role === 'user'"
@@ -190,3 +228,4 @@
     }
   </div>
 </article>
+}

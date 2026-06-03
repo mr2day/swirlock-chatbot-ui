@@ -80,7 +80,20 @@ export interface ChatMessage {
   messageId?: string;
   /** Server-assigned turn id once the orchestrator emits `done`. */
   turnId?: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'summary';
+  /** Set only when role==='summary'. The seq range of the original
+   *  messages this block replaces; used to fetch the originals when
+   *  the user clicks the expand toggle. */
+  summaryRange?: { startSeq: number; endSeq: number };
+  /** Set only when role==='summary'. Which model produced this
+   *  summary (e.g. claude-haiku-4-5-20251001, ministral-14b-latest). */
+  summaryModel?: string;
+  /** Set only when role==='summary'. The original messages the user
+   *  expanded inline; null/undefined while collapsed. */
+  expanded?: ChatMessage[];
+  /** Set only when role==='summary'. True while the original
+   *  messages are being fetched from the server. */
+  expanding?: boolean;
   /** Which backend/model produced this assistant turn. Null for user
    *  messages and for legacy assistant rows without attribution. */
   attribution?: MessageAttribution | null;

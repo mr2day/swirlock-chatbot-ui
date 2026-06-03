@@ -32,6 +32,21 @@ export interface GetSessionResponseData {
   updatedAt: string;
   status: string;
   messages: PersistedMessage[];
+  /** Layered compaction summaries — one entry per summarised range.
+   *  The UI inserts these into the timeline as collapsed bubbles at
+   *  their startSeq position so the conversation reads
+   *  chronologically without the user losing the gist of what was
+   *  compacted. Empty for sessions that have never been compacted. */
+  summaries: PersistedSummary[];
+}
+
+export interface PersistedSummary {
+  id: string;
+  startSeq: number;
+  endSeq: number;
+  summaryText: string;
+  summaryModel: string;
+  createdAt: string;
 }
 
 export interface GetSessionResponse {

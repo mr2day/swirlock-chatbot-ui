@@ -244,6 +244,85 @@
   }
 }
 
+/* === Compaction summary bubble === */
+/* Visually distinct from regular conversation bubbles: no avatar
+   column, full-width, slight indent, dotted top + bottom borders
+   to read as a "this is meta, not a turn" affordance. */
+.summary-block {
+  display: block;
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px dashed var(--persona-border, rgba(127, 127, 127, 0.3));
+  border-bottom: 1px dashed var(--persona-border, rgba(127, 127, 127, 0.3));
+  color: var(--persona-text-secondary);
+  font-size: var(--text-sm);
+  background: transparent;
+}
+
+.summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--persona-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.summary-label {
+  font-weight: 600;
+}
+
+.summary-range,
+.summary-by {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.7;
+}
+
+.summary-text {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  font-style: italic;
+  margin-bottom: var(--space-3);
+}
+
+.summary-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--persona-border, rgba(127, 127, 127, 0.3));
+  color: var(--persona-text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.summary-toggle:hover:not(:disabled) {
+  background: var(--persona-surface);
+  color: var(--persona-text-primary);
+}
+
+.summary-toggle:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* The recursively-rendered original messages inside an expanded
+   summary block. Pulled in slightly so they read as nested under
+   the summary header. */
+.summary-expanded {
+  margin-top: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--persona-border, rgba(127, 127, 127, 0.2));
+}
+
 .thinking-toggle {
   display: inline-flex;
   align-items: center;

@@ -298,4 +298,8 @@ export class ChatPage {
   protected onDenyLocation(correlationId: string): void {
     this.session.denyLocation(correlationId);
   }
+
+  protected onToggleSummary(summaryLocalId: string): void {
+    void this.session.toggleSummaryExpansion(summaryLocalId);
+  }
 }

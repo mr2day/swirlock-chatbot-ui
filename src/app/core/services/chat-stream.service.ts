@@ -530,6 +530,15 @@ export class ChatStreamService {
         createdAt: string;
         metadata: { backend?: string; modelId?: string } | null;
       }>;
+      const summaries = (reply['summaries'] ?? []) as Array<{
+        id: string;
+        startSeq: number;
+        endSeq: number;
+        summaryText: string;
+        tokenCount: number;
+        summaryModel: string;
+        createdAt: string;
+      }>;
       const persisted: PersistedMessage[] = collapseTurns(messages);
       return {
         meta: this.meta(correlationId),
@@ -547,8 +556,50 @@ export class ChatStreamService {
           updatedAt: session.updatedAt,
           status: session.status,
           messages: persisted,
+          summaries: summaries.map((s) => ({
+            id: s.id,
+            startSeq: s.startSeq,
+            endSeq: s.endSeq,
+            summaryText: s.summaryText,
+            summaryModel: s.summaryModel,
+            createdAt: s.createdAt,
+          })),
         },
       };
+    });
+  }
+
+  /**
+   * Fetch the originals of a compacted seq range — used by the UI
+   * to populate an expanded summary block. The returned messages
+   * are run through the same collapseTurns logic so a multi-step
+   * assistant turn inside the range renders as one bubble with the
+   * full toolActivity timeline rather than as several intermediate
+   * "let me check..." chunks.
+   */
+  fetchMessageRange(
+    sessionId: string,
+    startSeq: number,
+    endSeq: number,
+    correlationId = uuid(),
+  ): Promise<PersistedMessage[]> {
+    return this.request(
+      correlationId,
+      'messages.fetch_range',
+      'messages.range',
+      { sessionId, startSeq, endSeq },
+    ).then((reply) => {
+      const rows = (reply['messages'] ?? []) as Array<{
+        id: string;
+        turnId: string;
+        role: 'user' | 'assistant' | 'system' | 'tool';
+        content: unknown;
+        text: string;
+        seq: number;
+        createdAt: string;
+        metadata: { backend?: string; modelId?: string } | null;
+      }>;
+      return collapseTurns(rows);
     });
   }
 
