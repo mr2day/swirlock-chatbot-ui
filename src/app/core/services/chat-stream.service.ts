@@ -6,6 +6,7 @@ import type {
   GetSessionResponse,
   PersistedMessage,
 } from '../models/chat.model';
+import type { ToolActivityEntry } from '../models/chat-message.model';
 import type { ApiMeta } from '../models/api-meta.model';
 import type { ChatStreamEvent } from '../models/stream-event.model';
 import { AuthService } from './auth.service';
@@ -41,6 +42,193 @@ function resolveBrowserTimezone(): string {
   } catch {
     return 'UTC';
   }
+}
+
+/**
+ * Trim a URL down to a host-only form for use in the tool-activity
+ * timeline (e.g. `https://www.example.com/some/deep/path?x=1` →
+ * `example.com`). Falls back to the raw string if parsing fails.
+ */
+function shortenUrl(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Wire shape of a single persisted message row as returned by the
+ * agent runtime's `session.detail` reply. The runtime exposes the
+ * raw multi-part `content` (a JSON array of tool_use / tool_result /
+ * text parts as emitted by the AI SDK) alongside a flat `text`
+ * projection for display. We need the structured form to rebuild
+ * the per-turn tool-activity timeline on session reload.
+ */
+interface RawPersistedMessage {
+  id: string;
+  turnId: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: unknown;
+  text: string;
+  seq: number;
+  createdAt: string;
+  metadata: { backend?: string; modelId?: string } | null;
+}
+
+interface ContentPart {
+  type: string;
+  text?: string;
+  toolCallId?: string;
+  toolName?: string;
+  input?: unknown;
+  output?: unknown;
+}
+
+/**
+ * Collapse a flat list of persisted message rows (one per AI-SDK
+ * ModelMessage written by the agent loop) into the per-turn shape
+ * the UI bubbles render: ONE assistant message per turn whose
+ * `content` is the final answer text and whose `toolActivity` is the
+ * full timeline of tools the agent invoked during that turn.
+ *
+ * Why this collapse exists: the agent loop persists every step of
+ * its reasoning as a separate row (assistant text + tool_use → tool
+ * row with tool_result → next assistant turn, repeated). Rendering
+ * each row as its own bubble would show the user the agent's
+ * internal scratchpad as separate Romanian "let me check" blurbs
+ * between the question and the final answer. Collapsing keeps the
+ * conversation visually one-question-one-answer while preserving the
+ * tool record in a dedicated timeline above the body.
+ */
+function collapseTurns(rows: RawPersistedMessage[]): PersistedMessage[] {
+  const ordered = rows.slice().sort((a, b) => a.seq - b.seq);
+
+  // Group rows by turnId, preserving first-seen order across turns.
+  const turnOrder: string[] = [];
+  const turns = new Map<string, RawPersistedMessage[]>();
+  for (const row of ordered) {
+    if (!turns.has(row.turnId)) {
+      turnOrder.push(row.turnId);
+      turns.set(row.turnId, []);
+    }
+    turns.get(row.turnId)!.push(row);
+  }
+
+  const result: PersistedMessage[] = [];
+  for (const turnId of turnOrder) {
+    const rows = turns.get(turnId)!;
+    const userRow = rows.find((r) => r.role === 'user');
+    if (userRow) {
+      result.push({
+        messageId: userRow.id,
+        turnId,
+        role: 'user',
+        content: userRow.text,
+        createdAt: userRow.createdAt,
+      });
+    }
+
+    const assistantRows = rows.filter(
+      (r) => r.role === 'assistant' || r.role === 'system',
+    );
+    if (assistantRows.length === 0) continue;
+
+    // Walk every assistant message's structured content and pull
+    // out tool_use parts (timeline `running` entries) in seq order.
+    const activityById = new Map<string, ToolActivityEntry>();
+    const activityOrder: string[] = [];
+    for (const row of assistantRows) {
+      const parts = Array.isArray(row.content)
+        ? (row.content as ContentPart[])
+        : [];
+      for (const part of parts) {
+        if (part.type !== 'tool-call') continue;
+        if (!part.toolCallId || !part.toolName) continue;
+        if (activityById.has(part.toolCallId)) continue;
+        activityOrder.push(part.toolCallId);
+        activityById.set(part.toolCallId, {
+          id: part.toolCallId,
+          name: part.toolName,
+          summary: toolStartedSummaryStatic(part.toolName, part.input),
+          state: 'running',
+        });
+      }
+    }
+
+    // Match tool_result / tool_error parts (tool-role rows) against
+    // the timeline by toolCallId, transitioning to completed / failed.
+    const toolRows = rows.filter((r) => r.role === 'tool');
+    for (const row of toolRows) {
+      const parts = Array.isArray(row.content)
+        ? (row.content as ContentPart[])
+        : [];
+      for (const part of parts) {
+        if (!part.toolCallId) continue;
+        const entry = activityById.get(part.toolCallId);
+        if (!entry) continue;
+        if (part.type === 'tool-result') {
+          activityById.set(part.toolCallId, { ...entry, state: 'completed' });
+        } else if (part.type === 'tool-error') {
+          activityById.set(part.toolCallId, {
+            ...entry,
+            state: 'failed',
+          });
+        }
+      }
+    }
+
+    // Visible body: the LAST assistant row's text. The earlier rows
+    // are the agent's intermediate "let me check" blurbs around tool
+    // calls; the user wants the final answer, not the scratchpad.
+    const finalRow = assistantRows[assistantRows.length - 1];
+    const visibleText = finalRow.text;
+    const attribution =
+      finalRow.metadata?.backend && finalRow.metadata?.modelId
+        ? {
+            backend: finalRow.metadata.backend,
+            modelId: finalRow.metadata.modelId,
+          }
+        : undefined;
+    const toolActivity = activityOrder.map((id) => activityById.get(id)!);
+
+    result.push({
+      messageId: finalRow.id,
+      turnId,
+      role: 'assistant',
+      content: visibleText,
+      createdAt: finalRow.createdAt,
+      ...(attribution ? { attribution } : {}),
+      ...(toolActivity.length > 0 ? { toolActivity } : {}),
+    });
+  }
+  return result;
+}
+
+/**
+ * Standalone duplicate of the instance-method `toolStartedSummary`
+ * used by `collapseTurns`. Kept separate from the method to avoid
+ * needing a `this` reference inside the helper function (which runs
+ * outside any class context). The two implementations must stay in
+ * sync — when adding a new tool, update both. The drift risk is low
+ * because both reference the same tool-name string constants.
+ */
+function toolStartedSummaryStatic(name: string, input: unknown): string {
+  if (input && typeof input === 'object') {
+    const obj = input as Record<string, unknown>;
+    if (name === 'search_web' && typeof obj['query'] === 'string') {
+      return `Searching: "${obj['query']}"`;
+    }
+    if (name === 'fetch_page' && typeof obj['url'] === 'string') {
+      return `Reading: ${shortenUrl(obj['url'] as string)}`;
+    }
+    if (name === 'browse' && typeof obj['url'] === 'string') {
+      return `Browsing: ${shortenUrl(obj['url'] as string)}`;
+    }
+  }
+  if (name === 'get_current_time') return 'Checking the time';
+  if (name === 'add_numbers') return 'Computing';
+  return `Calling tool: ${name}`;
 }
 
 function uuid(): string {
@@ -342,27 +530,7 @@ export class ChatStreamService {
         createdAt: string;
         metadata: { backend?: string; modelId?: string } | null;
       }>;
-      const persisted: PersistedMessage[] = messages
-        // Hide pure tool-call / tool-result messages from the UI —
-        // they're internal agent-loop accounting, not turns the user
-        // typed or the assistant said. The final assistant text
-        // message at the end of the turn carries the visible content.
-        .filter((m) => m.role !== 'tool' && m.text.length > 0)
-        .map((m) => ({
-          messageId: m.id,
-          turnId: m.turnId,
-          role: m.role === 'system' ? 'assistant' : (m.role as 'user' | 'assistant'),
-          content: m.text,
-          createdAt: m.createdAt,
-          ...(m.metadata?.backend && m.metadata?.modelId
-            ? {
-                attribution: {
-                  backend: m.metadata.backend,
-                  modelId: m.metadata.modelId,
-                },
-              }
-            : {}),
-        }));
+      const persisted: PersistedMessage[] = collapseTurns(messages);
       return {
         meta: this.meta(correlationId),
         data: {
@@ -693,6 +861,7 @@ export class ChatStreamService {
 
       case 'turn.tool_use_started': {
         const name = (frame['toolName'] as string | undefined) ?? 'tool';
+        const toolCallId = frame['toolCallId'] as string | undefined;
         return {
           type: 'turn.agent',
           correlationId: turnId,
@@ -700,6 +869,7 @@ export class ChatStreamService {
             phase: 'command_started',
             command: name,
             summary: this.toolStartedSummary(name, frame['input']),
+            ...(toolCallId ? { toolCallId } : {}),
           },
         };
       }
@@ -707,6 +877,7 @@ export class ChatStreamService {
       case 'turn.tool_use_completed': {
         const toolName =
           (frame['toolName'] as string | undefined) ?? 'tool';
+        const toolCallId = frame['toolCallId'] as string | undefined;
         if (toolName === 'search_web') {
           const output = frame['output'] as
             | { results?: Array<{ title?: string; url?: string }> }
@@ -727,20 +898,27 @@ export class ChatStreamService {
             phase: 'command_completed',
             command: toolName,
             summary: 'Tool finished',
+            ...(toolCallId ? { toolCallId } : {}),
           },
         };
       }
 
-      case 'turn.tool_use_failed':
+      case 'turn.tool_use_failed': {
+        const toolCallId = frame['toolCallId'] as string | undefined;
+        const errorMessage =
+          (frame['error'] as string | undefined) ?? 'unknown';
         return {
           type: 'turn.agent',
           correlationId: turnId,
           payload: {
-            phase: 'command_completed',
+            phase: 'command_failed',
             command: (frame['toolName'] as string | undefined) ?? 'tool',
-            summary: `Tool failed: ${(frame['error'] as string | undefined) ?? 'unknown'}`,
+            summary: `Tool failed: ${errorMessage}`,
+            errorMessage,
+            ...(toolCallId ? { toolCallId } : {}),
           },
         };
+      }
 
       case 'turn.done': {
         const finish =
@@ -802,9 +980,17 @@ export class ChatStreamService {
   }
 
   private toolStartedSummary(name: string, input: unknown): string {
-    if (name === 'search_web' && input && typeof input === 'object') {
-      const q = (input as { query?: unknown }).query;
-      if (typeof q === 'string') return `Searching: "${q}"`;
+    if (input && typeof input === 'object') {
+      const obj = input as Record<string, unknown>;
+      if (name === 'search_web' && typeof obj['query'] === 'string') {
+        return `Searching: "${obj['query']}"`;
+      }
+      if (name === 'fetch_page' && typeof obj['url'] === 'string') {
+        return `Reading: ${shortenUrl(obj['url'] as string)}`;
+      }
+      if (name === 'browse' && typeof obj['url'] === 'string') {
+        return `Browsing: ${shortenUrl(obj['url'] as string)}`;
+      }
     }
     if (name === 'get_current_time') return 'Checking the time';
     if (name === 'add_numbers') return 'Computing';

@@ -158,6 +158,92 @@
   color: var(--persona-accent);
 }
 
+/* Append-only timeline of the agent's tool calls. Sits above the
+   answer body and persists for the life of the message — entries
+   transition state in place (running → completed / failed) rather
+   than disappearing, so the user has a record of what the agent
+   did, both during streaming and after reload. */
+.tool-timeline {
+  list-style: none;
+  margin: 0 0 var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--persona-surface);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--persona-text-secondary);
+}
+
+.tool-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  line-height: 1.4;
+}
+
+.tool-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.tool-entry[data-state="running"] .tool-state {
+  color: var(--persona-accent);
+}
+
+.tool-entry[data-state="completed"] .tool-state {
+  color: var(--persona-accent);
+  opacity: 0.7;
+}
+
+.tool-entry[data-state="failed"] .tool-state {
+  color: var(--persona-danger, #c0392b);
+}
+
+.tool-entry[data-state="completed"] .tool-summary {
+  opacity: 0.75;
+}
+
+.tool-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.tool-error {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding-left: 22px;
+  color: var(--persona-danger, #c0392b);
+  font-style: italic;
+}
+
+/* Indeterminate spinner for entries in the `running` state. Pure
+   CSS — no asset dependency. Keep it small and quiet so the
+   timeline reads as a record, not an animation showcase. */
+.tool-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: tool-spinner-spin 0.9s linear infinite;
+}
+
+@keyframes tool-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .thinking-toggle {
   display: inline-flex;
   align-items: center;

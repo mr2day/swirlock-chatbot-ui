@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ChatMessageImage,
   SessionSummary,
+  ToolActivityEntry,
 } from '../models/chat-message.model';
 import type { PersistedImageRef } from '../models/chat.model';
 import type { RetrievalStreamEvent } from '../models/stream-event.model';
@@ -405,6 +406,9 @@ export class SessionService {
             ? { citations: m.citations }
             : {}),
           ...(m.attribution ? { attribution: m.attribution } : {}),
+          ...(m.toolActivity && m.toolActivity.length > 0
+            ? { toolActivity: m.toolActivity }
+            : {}),
         };
       });
       this._messages.set(messages);
@@ -552,7 +556,6 @@ export class SessionService {
             this.patchAssistant({
               status: 'streaming',
               retrievalStatus: undefined,
-              agentStatus: undefined,
               ...(p.backend && p.modelId
                 ? {
                     attribution: { backend: p.backend, modelId: p.modelId },
@@ -579,7 +582,6 @@ export class SessionService {
             this.patchAssistant({
               status: 'streaming',
               retrievalStatus: undefined,
-              agentStatus: undefined,
             });
             break;
           case 'turn.done':
@@ -590,7 +592,6 @@ export class SessionService {
               createdAt: evt.payload.assistantMessage.createdAt,
               status: 'done',
               retrievalStatus: undefined,
-              agentStatus: undefined,
               citations: evt.payload.citations,
               diagnostics: evt.payload.diagnostics,
               stopReason: evt.payload.stopReason,
@@ -612,7 +613,6 @@ export class SessionService {
               status: 'error',
               errorMessage: evt.error.message,
               retrievalStatus: undefined,
-              agentStatus: undefined,
             });
             this._streaming.set(false);
             this.currentStream = null;
@@ -815,28 +815,101 @@ export class SessionService {
   }
 
   /**
-   * Surfaces orchestrator agent activity ({@code turn.agent}) so the bubble
-   * can show the user what the agent is doing between control steps.
-   * `command_started` (e.g. "Searching: 'current weather'") wins over
-   * `command_completed` and `plan` summaries.
+   * Routes the unified `turn.agent` stream event into either the tool-
+   * activity timeline (when `toolCallId` is present — every event the
+   * new agent runtime emits has one) or, for legacy `classifying` /
+   * `plan` phases that have no per-call identity, into a no-op. The
+   * timeline lives on the assistant message as an append-only array;
+   * entries transition `running → completed / failed` but never
+   * disappear, so the user always has a record of what the agent did.
    */
   private applyAgentEvent(payload: {
     phase:
       | 'classifying'
       | 'command_started'
       | 'command_completed'
+      | 'command_failed'
       | 'plan';
     command?: string;
     summary: string;
+    toolCallId?: string;
+    errorMessage?: string;
   }): void {
-    if (payload.phase === 'command_completed') {
-      // Final retrieval/RAG events already cover this; leave the
-      // retrievalStatus alone but clear stale agentStatus.
-      this.patchAssistant({ agentStatus: undefined });
+    if (!payload.toolCallId) return;
+    if (payload.phase === 'command_started') {
+      this.upsertToolActivity({
+        id: payload.toolCallId,
+        name: payload.command ?? 'tool',
+        summary: payload.summary,
+        state: 'running',
+      });
       return;
     }
-    this.patchAssistant({
-      agentStatus: payload.summary,
+    if (payload.phase === 'command_completed') {
+      this.patchToolActivity(payload.toolCallId, (e) => ({
+        ...e,
+        state: 'completed',
+      }));
+      return;
+    }
+    if (payload.phase === 'command_failed') {
+      this.patchToolActivity(payload.toolCallId, (e) => ({
+        ...e,
+        state: 'failed',
+        ...(payload.errorMessage
+          ? { errorMessage: payload.errorMessage }
+          : {}),
+      }));
+      return;
+    }
+  }
+
+  /**
+   * Insert a new entry if the toolCallId hasn't been seen, otherwise
+   * overwrite the existing entry (covers a stray double-`started`).
+   * Append-only ordering — entries keep their original position even
+   * if later updated by a `completed` or `failed`.
+   */
+  private upsertToolActivity(entry: ToolActivityEntry): void {
+    this._messages.update((list) => {
+      if (list.length === 0) return list;
+      const idx = list.length - 1;
+      const last = list[idx];
+      if (last.role !== 'assistant') return list;
+      const existing = last.toolActivity ?? [];
+      const at = existing.findIndex((e) => e.id === entry.id);
+      const nextActivity =
+        at === -1
+          ? [...existing, entry]
+          : existing.map((e, i) => (i === at ? entry : e));
+      const next = list.slice();
+      next[idx] = { ...last, toolActivity: nextActivity };
+      return next;
+    });
+  }
+
+  /**
+   * Locate an existing entry by `toolCallId` and run the patch through
+   * it. Silently no-ops if the entry isn't there (e.g. a stray
+   * `completed` arriving without a matching `started` — shouldn't
+   * happen, but is harmless to ignore).
+   */
+  private patchToolActivity(
+    toolCallId: string,
+    patch: (entry: ToolActivityEntry) => ToolActivityEntry,
+  ): void {
+    this._messages.update((list) => {
+      if (list.length === 0) return list;
+      const idx = list.length - 1;
+      const last = list[idx];
+      if (last.role !== 'assistant') return list;
+      const existing = last.toolActivity ?? [];
+      const at = existing.findIndex((e) => e.id === toolCallId);
+      if (at === -1) return list;
+      const nextActivity = existing.map((e, i) => (i === at ? patch(e) : e));
+      const next = list.slice();
+      next[idx] = { ...last, toolActivity: nextActivity };
+      return next;
     });
   }
 

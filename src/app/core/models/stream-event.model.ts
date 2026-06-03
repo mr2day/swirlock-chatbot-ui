@@ -74,10 +74,19 @@ export type ChatStreamEvent =
           | 'classifying'
           | 'command_started'
           | 'command_completed'
+          | 'command_failed'
           | 'plan';
         command?: string;
         summary: string;
         data?: unknown;
+        /** Present on command_* phases. Stable id from the provider's
+         *  tool_use block. Identifies which entry to update when the
+         *  matching `command_completed` / `command_failed` arrives, so
+         *  parallel tool calls don't clobber each other. */
+        toolCallId?: string;
+        /** Only set on `command_failed`. Surfaced inline in the timeline
+         *  so the user sees what went wrong. */
+        errorMessage?: string;
       };
     }
   | {

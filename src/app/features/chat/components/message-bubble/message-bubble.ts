@@ -85,11 +85,12 @@ export class MessageBubble {
     if (m.status === 'cancelled') return 'Stopped';
     if (m.status === 'error') return m.errorMessage ?? 'Something went wrong';
     if (m.content.length > 0) return null;
-    // While any more-specific label (agentStatus / retrievalStatus)
-    // is showing, suppress the generic one — they sit right next to
-    // each other in the bubble and the specific label is the
-    // useful one.
-    if (m.agentStatus || m.retrievalStatus) return null;
+    // While a more-specific label (retrievalStatus) or any tool-
+    // activity entry is showing, suppress the generic one — they
+    // sit right next to each other in the bubble and the specific
+    // signal is the useful one.
+    if (m.retrievalStatus) return null;
+    if (m.toolActivity && m.toolActivity.length > 0) return null;
     switch (m.status) {
       case 'pending':
       case 'classifying':

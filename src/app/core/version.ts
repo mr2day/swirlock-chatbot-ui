@@ -2,8 +2,8 @@
 // edits will be overwritten on the next deploy. See deploy.sh.
 
 export const VERSION = {
-  display: 'v.0.1.21',
-  bundle: '0.1.21',
-  buildDate: '2026-06-03T11:53:40.662Z',
-  commitHash: '71235ca',
+  display: 'v.0.1.22',
+  bundle: '0.1.22',
+  buildDate: '2026-06-03T17:42:21.560Z',
+  commitHash: '62354b8',
 } as const;

@@ -61,6 +61,14 @@ export interface PersistedMessage {
   /** Which backend + model produced this assistant turn. Null for
    *  user messages and for legacy rows without attribution. */
   attribution?: { backend: string; modelId: string };
+  /**
+   * Reconstructed tool-activity timeline for this assistant turn,
+   * derived from the structured tool_use / tool_result parts in the
+   * persisted multi-part content. Empty for turns that didn't call
+   * any tools. Present so a reloaded conversation retains the same
+   * "what the agent did" record the user saw live.
+   */
+  toolActivity?: import('./chat-message.model').ToolActivityEntry[];
 }
 
 export interface DeleteSessionResponse {

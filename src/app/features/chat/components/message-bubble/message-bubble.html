@@ -26,21 +26,47 @@
 
   <div class="body">
 
-    @if (message().agentStatus; as label) {
-      <div class="retrieval">
-        <span class="retrieval-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="14" height="14">
-            <path
-              d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M16 8l3-3M5 19l3-3"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </svg>
-        </span>
-        <span>{{ label }}</span>
-      </div>
+    @if (message().toolActivity?.length) {
+      <ol class="tool-timeline" aria-label="Agent actions">
+        @for (entry of message().toolActivity!; track entry.id) {
+          <li class="tool-entry" [attr.data-state]="entry.state">
+            <span class="tool-state" aria-hidden="true">
+              @switch (entry.state) {
+                @case ('running') {
+                  <span class="tool-spinner"></span>
+                }
+                @case ('completed') {
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <path
+                      d="M5 12l4 4 10-10"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                }
+                @case ('failed') {
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <path
+                      d="M6 6l12 12M18 6L6 18"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                }
+              }
+            </span>
+            <span class="tool-summary">{{ entry.summary }}</span>
+            @if (entry.state === 'failed' && entry.errorMessage) {
+              <span class="tool-error">{{ entry.errorMessage }}</span>
+            }
+          </li>
+        }
+      </ol>
     }
     @if (message().retrievalStatus; as label) {
       <div class="retrieval">

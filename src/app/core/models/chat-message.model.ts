@@ -47,6 +47,32 @@ export interface MessageAttribution {
   modelId: string;
 }
 
+/**
+ * One entry in the assistant message's append-only tool-activity
+ * timeline. The bubble renders these stacked above the answer body
+ * so the user can see what the agent did, while it's doing it and
+ * after the fact. The `id` is the provider's `toolCallId`, which
+ * uniquely identifies the call so a `command_completed` /
+ * `command_failed` event can land on the right entry regardless of
+ * how many parallel calls are in flight.
+ */
+export interface ToolActivityEntry {
+  /** Provider-issued tool_use id. Stable across the call's lifecycle. */
+  id: string;
+  /** The tool name as registered in the agent runtime
+   *  (e.g. `search_web`, `fetch_page`, `browse`). */
+  name: string;
+  /** Short human-readable description of what the tool was asked to
+   *  do, derived from the input (e.g. `Searching: "TVR1 program"`). */
+  summary: string;
+  /** `running` while the tool is executing, `completed` after success,
+   *  `failed` if the tool threw or returned an error. Append-only —
+   *  entries never disappear, only transition state. */
+  state: 'running' | 'completed' | 'failed';
+  /** Set only when `state === 'failed'`. Free-form. */
+  errorMessage?: string;
+}
+
 export interface ChatMessage {
   /** Stable client-side id; replaced with `messageId` after persistence. */
   localId: string;
@@ -68,9 +94,11 @@ export interface ChatMessage {
   status: ChatMessageStatus;
   /** Friendly current-phase label derived from RAG `retrieval` events. */
   retrievalStatus?: string;
-  /** Friendly current-phase label derived from agent `turn.agent` events
-   *  (commands, plan creation/updates) shown alongside retrieval status. */
-  agentStatus?: string;
+  /** Append-only timeline of every tool call the agent issued for this
+   *  turn. Built live from `command_started` / `command_completed` /
+   *  `command_failed` events during streaming, and reconstructed from
+   *  persisted multi-part content on session reload. */
+  toolActivity?: ToolActivityEntry[];
   /** Inline location-permission prompt state when the orchestrator asked for location. */
   locationPrompt?: LocationPromptState;
   /** RAG evidence surfaced on `done`. */
