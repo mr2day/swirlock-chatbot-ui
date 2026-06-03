@@ -1,14 +1,4 @@
 import type { ErrorBody } from './error-envelope.model';
-import type { SubmitTurnRequest } from './chat.model';
-
-export interface SubmitTurnStreamMessage {
-  type: 'turn.submit';
-  correlationId: string;
-  payload: {
-    sessionId: string;
-    request: SubmitTurnRequest;
-  };
-}
 
 export interface QueueWaitInfo {
   position: number;

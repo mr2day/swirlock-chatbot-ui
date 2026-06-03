@@ -1,48 +1,7 @@
 import type { ApiMeta } from './api-meta.model';
 import type { CitationRef } from './stream-event.model';
 
-export type RequestPriority = 'interactive' | 'background' | 'maintenance';
-
-export interface RequestContext {
-  callerService: string;
-  priority?: RequestPriority;
-  requestedAt: string;
-  timeoutMs?: number;
-  debug?: boolean;
-}
-
-export interface TextInputPart {
-  type: 'text';
-  text: string;
-}
-
-export interface ImageInputPart {
-  type: 'image';
-  imageId?: string;
-  imageUrl?: string;
-  /** Full data URL (`data:image/png;base64,...`) for inline image uploads
-   *  from paste / drag-drop / file picker in the composer. */
-  imageBase64?: string;
-  mimeType?: string;
-}
-
-export type InputPart = TextInputPart | ImageInputPart;
-
 /* ---------- Sessions ---------- */
-
-export interface CreateSessionRequest {
-  requestContext: RequestContext;
-  participant: { userId: string; displayName?: string };
-  app: { appId: string };
-  /**
-   * Per-session persona variable defined by the client app. The orchestrator
-   * stores it on the session row and pipes `systemPrompt` to the LLM on
-   * every turn. Optional: a session without a persona gets no system prompt
-   * injection.
-   */
-  persona?: { name: string; systemPrompt: string };
-  client?: { channel?: string; clientVersion?: string };
-}
 
 export interface CreateSessionResponseData {
   sessionId: string;
@@ -59,9 +18,8 @@ export interface CreateSessionResponse {
 }
 
 /**
- * Orchestrator extension beyond the v3 OpenAPI: returns the session header
- * plus the full message history. Used by the UI to rehydrate a session
- * after a reload.
+ * Returns the session header plus the full message history. Used by
+ * the UI to rehydrate a session after a reload.
  */
 export interface GetSessionResponseData {
   sessionId: string;
@@ -97,8 +55,7 @@ export interface PersistedMessage {
   /**
    * Citations / source list attached to this assistant turn. Set only
    * for assistant-role messages whose answer round used SEARCH
-   * evidence. Surfaced verbatim from the orchestrator's
-   * `messages.citations_json` column.
+   * evidence.
    */
   citations?: CitationRef[];
   /** Which backend + model produced this assistant turn. Null for
@@ -118,56 +75,4 @@ export interface UserLocation {
   longitude: number;
   accuracyMeters?: number;
   capturedAt?: string;
-}
-
-export interface SubmitTurnRequest {
-  requestContext: RequestContext;
-  clientTurnId?: string;
-  message: { parts: InputPart[]; occurredAt: string };
-  userLocation?: UserLocation;
-  /**
-   * Optional LLM backend selector. When set, the orchestrator forwards
-   * it to the LLM Host so a host with multiple backends routes this
-   * turn accordingly. Omit to let the host use its env default.
-   */
-  backend?: 'ollama' | 'anthropic';
-  options?: {
-    responseMode?: 'blocking';
-    maxOutputTokens?: number;
-    includeDiagnostics?: boolean;
-    thinking?: boolean;
-    forceThinking?: boolean;
-  };
-}
-
-export interface SubmitTurnResponseData {
-  sessionId: string;
-  turnId: string;
-  assistantMessage: {
-    messageId: string;
-    content: string;
-    createdAt: string;
-  };
-  citations?: Array<{
-    evidenceId: string;
-    sourceTitle: string;
-    sourceUrl?: string;
-  }>;
-  diagnostics?: {
-    retrievalUsed: boolean;
-    memoryFragmentCount: number;
-    retrievalMode: 'none' | 'local_rag' | 'live_web' | 'local_and_live';
-    turnRoute?: string;
-    standardAnswerKey?: string;
-    shouldRetrieve?: boolean;
-    shouldThink?: boolean;
-    intent?: string;
-    freshness?: string;
-    planReason?: string;
-  };
-}
-
-export interface SubmitTurnResponse {
-  meta: ApiMeta;
-  data: SubmitTurnResponseData;
 }
